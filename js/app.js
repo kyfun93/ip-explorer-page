@@ -95,8 +95,9 @@
   }
 
   function setImportsOpen(open) {
+    if (!els.importPanel) return;
     els.importPanel.hidden = !open;
-    els.importsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (els.importsToggle) els.importsToggle.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
   function serviceName(record) {
@@ -261,6 +262,10 @@
       }
       if (addedLine) button.append(meta, addedLine, title, excerpt);
       else button.append(meta, title, excerpt);
+      button.addEventListener("pointerdown", function () {
+        state.scrollY = window.scrollY;
+        state.scrollArmed = true;
+      });
       button.addEventListener("click", function () { openDetail(hit.record.id); });
       els.list.appendChild(button);
     });
@@ -340,6 +345,7 @@
       if (restoreScroll) {
         const y = state.scrollY || 0;
         restoreScroll = false;
+        window.scrollTo(0, y);
         requestAnimationFrame(function () { window.scrollTo(0, y); });
       }
     }
@@ -355,7 +361,10 @@
     if (!closeSurfaces(null)) return;
     const record = state.questions.find(function (item) { return item.id === id; }) || await repo.getQuestion(id);
     if (!record) return;
-    state.scrollY = window.scrollY;
+    if (!state.scrollArmed) state.scrollY = window.scrollY;
+    state.scrollArmed = false;
+    const detailToken = {};
+    state.detailToken = detailToken;
     state.page = "detail";
     state.editingId = id;
     document.getElementById("detail-meta").textContent = [
@@ -413,6 +422,7 @@
     }
     viewMemory[state.view] = { scrollY: state.scrollY, visibleCount: state.visibleCount };
     await renderPdf(record);
+    if (state.detailToken !== detailToken || state.page !== "detail") return;
     render();
     window.scrollTo(0, 0);
   }
@@ -604,6 +614,7 @@
     await openDetail(record.id);
   });
   document.getElementById("back-button").addEventListener("click", function () {
+    state.detailToken = null;
     state.page = "list";
     els.query.value = state.query;
     restoreScroll = true;
@@ -678,11 +689,13 @@
     state.page = "list";
     render();
   });
-  els.importsToggle.addEventListener("click", function () {
-    const opening = els.importPanel.hidden;
-    if (opening && !closeSurfaces("imports")) return;
-    setImportsOpen(opening);
-  });
+  if (els.importsToggle) {
+    els.importsToggle.addEventListener("click", function () {
+      const opening = els.importPanel.hidden;
+      if (opening && !closeSurfaces("imports")) return;
+      setImportsOpen(opening);
+    });
+  }
   const menuToggle = document.getElementById("menu-toggle");
   const actionMenu = document.getElementById("action-menu");
   function setMenuOpen(open) {
@@ -820,14 +833,16 @@
     const sha = await IPPdf.sha256(buffer.slice(0));
     let pages = await IPPdf.extractPages(buffer.slice(0));
     const ocrPages = pages.filter(function (page) { return IPParse.pageNeedsOcr(page); }).length;
+    const progressLabel = ocrPages
+      ? "Ajout de " + name + " (OCR français, " + ocrPages + " page" + (ocrPages > 1 ? "s" : "") + ")…"
+      : "Ajout de " + name + "…";
     if (status) {
       status.hidden = false;
-      setImportsOpen(true);
       const progress = globalThis.__fondsProgress ? globalThis.__fondsProgress + " — " : "";
-      status.textContent = progress + (ocrPages
-        ? "Lecture de " + name + " (OCR français, " + ocrPages + " page" + (ocrPages > 1 ? "s" : "") + ")…"
-        : "Lecture de " + name + "…");
+      status.textContent = progress + progressLabel;
     }
+    const liveReport = document.getElementById("import-report");
+    if (liveReport) liveReport.textContent = progressLabel;
     const deadline = Date.now() + (IPOcr.fileDeadlineMs || 240000);
     pages = await IPOcr.completePages(buffer.slice(0), pages, deadline);
     const parsed = IPParse.parseMeeting(pages);
@@ -933,7 +948,7 @@
     }
     const button = document.getElementById("run-import");
     button.disabled = true;
-    report.textContent = "Lecture des PDF…";
+    report.textContent = "Ajout des PDF…";
     const forced = document.getElementById("import-service").value || null;
     let added = 0;
     let duplicates = 0;
@@ -989,7 +1004,7 @@
       input.value = "";
       await refresh();
     } catch (error) {
-      report.textContent = "La lecture a échoué : " + (error && error.message ? error.message : "erreur inconnue");
+      report.textContent = "L’ajout a échoué : " + (error && error.message ? error.message : "erreur inconnue");
     } finally {
       button.disabled = false;
     }

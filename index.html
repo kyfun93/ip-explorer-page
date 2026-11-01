@@ -12,7 +12,7 @@
     body.needs-login .import-panel,
     body.needs-login dialog { display: none !important; }
   </style>
-  <link rel="stylesheet" href="css/app.css?v=lecture1">
+  <link rel="stylesheet" href="css/app.css?v=tel1">
 </head>
 <body class="needs-login">
   <header class="top">
@@ -24,8 +24,7 @@
       <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="action-menu">Menu</button>
       <div class="actions" id="action-menu">
         <button type="button" id="add-button">Ajouter</button>
-        <button type="button" id="import-button" class="primary">Importer des PDF</button>
-        <button type="button" id="imports-toggle" class="text-button" aria-expanded="false" aria-controls="import-panel">Imports</button>
+        <button type="button" id="import-button" class="primary">Ajouter PDF</button>
         <button type="button" id="logout-button" hidden>Déconnexion</button>
       </div>
     </div>
@@ -199,7 +198,7 @@
 
   <dialog id="importer">
     <form id="import-form" method="dialog">
-      <h2>Importer des comptes rendus</h2>
+      <h2>Ajouter PDF</h2>
       <p class="hint">Les paires complètes sont ajoutées directement. Un fichier déjà lu avec la lecture actuelle n’est pas recopié. Une ancienne lecture est remplacée, sans écraser une correction manuelle.</p>
       <label>Service, si vous voulez le forcer
         <select id="import-service"></select>
@@ -210,7 +209,7 @@
       <div id="import-report"></div>
       <div class="dialog-actions">
         <button type="button" id="close-import">Fermer</button>
-        <button type="submit" class="primary" id="run-import">Lire les PDF</button>
+        <button type="submit" class="primary" id="run-import">Ajouter PDF</button>
       </div>
     </form>
   </dialog>
@@ -224,14 +223,14 @@
   <script src="js/text.js?v=reprise3"></script>
   <script src="js/related.js"></script>
   <script src="js/search.js?v=vues"></script>
-  <script src="js/parse-pairs.js?v=lecture1"></script>
+  <script src="js/parse-pairs.js?v=tel1"></script>
   <script src="js/repository.js?v=lecture1"></script>
   <script src="js/gate.js?v=partage1"></script>
   <script src="js/remote.js?v=lecture1"></script>
-  <script src="js/pdf-extract.js?v=fonds"></script>
-  <script src="js/ocr.js?v=fonds3"></script>
+  <script src="js/pdf-extract.js?v=tel1"></script>
+  <script src="js/ocr.js?v=tel1"></script>
   <script src="js/demo.js?v=fonds"></script>
   <script src="js/semantic.js?v=partage1"></script>
-  <script src="js/app.js?v=lecture1"></script>
+  <script src="js/app.js?v=tel1"></script>
 </body>
 </html>

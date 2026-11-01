@@ -357,8 +357,120 @@
     return count;
   }
 
+  function textInsideRulings(page) {
+    const grid = page && page.rulings;
+    if (!grid || !grid.xs || !grid.ys || grid.ys.length < 2) return usefulTextLength(page);
+    const top = grid.ys[0];
+    const bottom = grid.ys[grid.ys.length - 1];
+    const left = grid.xs[0];
+    const right = grid.xs[grid.xs.length - 1];
+    let count = 0;
+    (page.items || []).forEach(function (item) {
+      if (item.x < left - 1 || item.x > right || item.y > top || item.y < bottom) return;
+      count += String(item.text || "").replace(/\s+/g, "").length;
+    });
+    return count;
+  }
+
   function pageNeedsOcr(page) {
-    return usefulTextLength(page) < 40;
+    if (usefulTextLength(page) < 40) return true;
+    return Boolean(page && page.rulings && textInsideRulings(page) < 40);
+  }
+
+  function numberFromCell(value) {
+    const compact = text.collapse(value).replace(/\s+/g, "");
+    if (!compact || /^(19|20)\d{2}$/.test(compact)) return "";
+    if (/^\d{1,4}$/.test(compact)) return compact;
+    const dated = compact.match(/^(\d{2}-\d{2})-+(\d{1,3})$/);
+    if (dated) return dated[1] + "-" + dated[2];
+    return "";
+  }
+
+  function cellText(words) {
+    const sorted = words.slice().sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+    let output = "";
+    sorted.forEach(function (item) {
+      const piece = String(item.text || "").replace(/\s+/g, " ").trim();
+      if (!piece) return;
+      if (!output) {
+        output = piece;
+        return;
+      }
+      if (/[A-Za-zÀ-ÿ]-$/.test(output) && /^[A-Za-zÀ-ÿ]/.test(piece)) output += piece;
+      else output += " " + piece;
+    });
+    return output.replace(/[ \t]+/g, " ").trim();
+  }
+
+  function rowsFromRulings(page) {
+    const grid = page && page.rulings;
+    if (!grid || !grid.xs || grid.xs.length < 3 || !grid.ys || grid.ys.length < 2) return [];
+    const rows = [];
+    for (let i = 0; i < grid.ys.length - 1; i += 1) {
+      const top = grid.ys[i];
+      const bottom = grid.ys[i + 1];
+      if (top - bottom < 8) continue;
+      const cells = [];
+      for (let c = 0; c < grid.xs.length - 1; c += 1) {
+        const left = grid.xs[c];
+        const right = grid.xs[c + 1];
+        const words = (page.items || []).filter(function (item) {
+          return item.x >= left - 1 && item.x < right - 1 && item.y < top - 0.8 && item.y > bottom + 0.4;
+        });
+        cells.push(cellText(words));
+      }
+      if (cells.some(Boolean)) rows.push(cells);
+    }
+    return rows;
+  }
+
+  function readRuledPairs(pages) {
+    const pairs = [];
+    let current = null;
+    let stopped = false;
+    let found = false;
+    (pages || []).forEach(function (page) {
+      if (stopped) return;
+      rowsFromRulings(page).forEach(function (cells) {
+        if (stopped) return;
+        found = true;
+        const joined = text.collapse(cells.join(" "));
+        if (isStopText(joined) || (/calendrier/i.test(joined) && joined.length < 120)) {
+          current = null;
+          stopped = true;
+          return;
+        }
+        if (isHeaderLine(joined) || (/n°/i.test(joined) && /question/i.test(joined) && /r[ée]ponse/i.test(joined) && joined.length < 140)) return;
+        let num = numberFromCell(cells[0] || "");
+        let question = text.collapse(cells[1] || "");
+        let answer = text.collapse(cells.slice(2).join(" "));
+        if (cells.length === 2) {
+          num = numberFromCell(cells[0] || "") || "";
+          question = num ? text.collapse(String(cells[0] || "").replace(/^\s*\S+\s*/, "")) : text.collapse(cells[0] || "");
+          if (!num) question = text.collapse(cells[0] || "");
+          answer = text.collapse(cells[1] || "");
+        }
+        if (!question && !answer) return;
+        if (/pas de question/i.test(question) && question.length < 48) return;
+        if (!num && !answer && (text.organizationHeading(question) || (question.length < 45 && /\bIP\b/i.test(question)))) return;
+        if (num) {
+          current = { number: num, questionParts: question ? [question] : [], answerParts: answer ? [answer] : [], pages: {}, uncertain: [] };
+          current.pages[page.page] = true;
+          pairs.push(current);
+          return;
+        }
+        if (!current) return;
+        if (question) current.questionParts.push(question);
+        if (answer) current.answerParts.push(answer);
+        current.pages[page.page] = true;
+      });
+    });
+    if (!found) return null;
+    return pairs.map(finalizePair).filter(usablePair);
+  }
+
+  function numberedPairs(pairs) {
+    return (pairs || []).filter(function (pair) { return pair.number; }).length;
   }
 
   function preambleOf(page, header) {
@@ -374,7 +486,7 @@
     });
   }
 
-  function parseMeeting(pages) {
+  function parseColumns(pages) {
     const anomalies = [];
     const notes = [];
     const safePages = Array.isArray(pages) ? pages : [];
@@ -667,6 +779,36 @@
       incomplete: incomplete,
       pairs: incomplete ? [] : closed,
       anomalies: anomalies,
+      notes: notes
+    };
+  }
+
+  function parseMeeting(pages) {
+    const columns = parseColumns(pages);
+    const ruled = readRuledPairs(pages);
+    if (!ruled || numberedPairs(ruled) < numberedPairs(columns.pairs)) return columns;
+    const prepared = (Array.isArray(pages) ? pages : []).map(function (page, index) {
+      const lines = groupLines(page.items || []);
+      return {
+        page: page.page || index + 1,
+        lines: lines,
+        header: findHeader(lines),
+        height: page.height || 842
+      };
+    });
+    const coverage = readingCoverage(prepared, ruled);
+    const incomplete = coverage.total >= 40 && coverage.missing / coverage.total > 0.2;
+    const notes = (columns.notes || []).slice();
+    notes.push("Les cases du tableau ont été lues à partir des traits du PDF.");
+    if (incomplete) notes.push("La lecture est incomplète : une partie du tableau n’a pas été retenue. Aucune fiche n’a été ajoutée.");
+    return {
+      meetingDate: columns.meetingDate,
+      signedDate: columns.signedDate,
+      serviceId: columns.serviceId,
+      serviceMention: columns.serviceMention,
+      incomplete: incomplete,
+      pairs: incomplete ? [] : ruled,
+      anomalies: columns.anomalies || [],
       notes: notes
     };
   }

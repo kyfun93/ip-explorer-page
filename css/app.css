@@ -280,11 +280,6 @@ button[aria-selected="true"] {
 
 .import-panel { margin-top: 0.8rem; }
 
-.actions #imports-toggle {
-  color: var(--text-muted);
-  min-height: 36px;
-}
-
 mark {
   background: rgba(0, 229, 255, 0.28);
   color: inherit;
@@ -438,7 +433,7 @@ footer {
     box-shadow: var(--shadow-neon);
   }
   .actions.is-open { display: flex; }
-  .actions button, .actions #imports-toggle { width: 100%; min-height: 44px; justify-content: flex-start; }
+  .actions button { width: 100%; min-height: 44px; justify-content: flex-start; }
   main, #detail, footer, .banner, .bilan, .import-panel { width: min(920px, calc(100% - 1.2rem)); }
   #search-form { order: 1; }
   .views { order: 2; margin-top: 0.15rem; }

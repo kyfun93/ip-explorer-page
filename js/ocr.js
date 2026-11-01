@@ -176,7 +176,14 @@
       const confidence = word.confidence == null ? null : Number(word.confidence);
       const core = value.replace(/^[^A-Za-zÀ-ÿ0-9]+|[^A-Za-zÀ-ÿ0-9]+$/g, "");
       if (confidence != null && confidence < 30 && core.length < 3) return;
-      kept.push({ text: value, y: box.y0, bottom: box.y1, confidence: confidence });
+      kept.push({
+        text: value,
+        y: box.y0,
+        bottom: box.y1,
+        x0: box.x0,
+        x1: box.x1,
+        confidence: confidence
+      });
     });
     const lines = [];
     kept.forEach(function (word) {
@@ -188,22 +195,21 @@
       }
     });
     const items = [];
-    const start = (left + 6) / SCALE;
-    const end = (left + width - 6) / SCALE;
-    lines.forEach(function (line) {
-      const step = line.words.length > 1 ? Math.min(2, Math.max(1.6, (end - start) / (line.words.length - 1))) : 0;
-      const lineY = baseHeight - ((top + line.bottom) / SCALE);
-      line.words.forEach(function (word, index) {
-        items.push({
-          text: word.text,
-          x: start + (index * step),
-          y: lineY,
-          w: 0.2,
-          h: 8,
-          confidence: word.confidence
+      lines.forEach(function (line) {
+        const lineY = baseHeight - ((top + line.bottom) / SCALE);
+        line.words.forEach(function (word) {
+          const wordX = word.x0 == null ? (left + 6) / SCALE : (left + word.x0) / SCALE;
+          const wordW = word.x1 == null ? 4 : Math.max(0.4, (word.x1 - word.x0) / SCALE);
+          items.push({
+            text: word.text,
+            x: wordX,
+            y: lineY,
+            w: wordW,
+            h: 8,
+            confidence: word.confidence
+          });
         });
       });
-    });
     return items;
   }
 
