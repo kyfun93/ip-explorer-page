@@ -1,0 +1,48 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1021 >>
+stream
+BT /F1 11 Tf 1 0 0 1 40 790 Tm (TEST IMPORT) Tj ET
+BT /F1 12 Tf 1 0 0 1 40 768 Tm (Unit\351 VOIE) Tj ET
+BT /F1 12 Tf 1 0 0 1 40 746 Tm (Date de la r\351union : 15 janvier 2026) Tj ET
+BT /F1 11 Tf 1 0 0 1 28 700 Tm (N\260) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 700 Tm (Question) Tj ET
+BT /F1 11 Tf 1 0 0 1 390 700 Tm (R\351ponse) Tj ET
+BT /F1 11 Tf 1 0 0 1 28 660 Tm (1) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 660 Tm (TEST IMPORT Les IP demandent si) Tj ET
+BT /F1 11 Tf 1 0 0 1 390 660 Tm (TEST IMPORT R\351ponse invent\351e,) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 644 Tm (le lampadaire fictif Z\351phyr existe.) Tj ET
+BT /F1 11 Tf 1 0 0 1 390 644 Tm (sans aucun fait r\351el.) Tj ET
+BT /F1 11 Tf 1 0 0 1 28 610 Tm (2) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 610 Tm (TEST IMPORT Les IP signalent) Tj ET
+BT /F1 11 Tf 1 0 0 1 390 610 Tm (TEST IMPORT Ceci ne concerne) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 594 Tm (le quai fictif nomm\351 Z\351phyr.) Tj ET
+BT /F1 11 Tf 1 0 0 1 390 594 Tm (aucun \351quipement r\351el.) Tj ET
+BT /F1 9 Tf 1 0 0 1 40 40 Tm (1 / 1) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001314 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1411
+%%EOF
