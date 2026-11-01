@@ -899,7 +899,6 @@
     document.body.classList.add("needs-login");
     document.getElementById("login-screen").hidden = false;
     document.getElementById("logout-button").hidden = true;
-    document.getElementById("change-code-button").hidden = true;
     const error = document.getElementById("login-error");
     error.hidden = !message;
     error.textContent = message || "";
@@ -909,7 +908,6 @@
     document.body.classList.remove("needs-login");
     document.getElementById("login-screen").hidden = true;
     document.getElementById("logout-button").hidden = !remote.enabled();
-    document.getElementById("change-code-button").hidden = !remote.enabled();
   }
 
   async function lockOut(message) {
@@ -978,9 +976,6 @@
     lockOut("Vous êtes déconnecté. Les questions de cet appareil ont été effacées.");
   });
 
-  document.getElementById("change-code-button").addEventListener("click", function () {
-    document.getElementById("code-change").showModal();
-  });
   document.getElementById("cancel-code-change").addEventListener("click", function () {
     document.getElementById("code-change").close();
   });
