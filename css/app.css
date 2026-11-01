@@ -43,10 +43,11 @@ main, #detail, footer, .banner, .import-panel {
   margin-right: auto;
 }
 
+body.needs-login .top,
 body.needs-login main,
-body.needs-login .actions,
-body.needs-login .menu-toggle,
-body.needs-login .import-panel { display: none; }
+body.needs-login #detail,
+body.needs-login .import-panel,
+body.needs-login dialog { display: none !important; }
 
 .login-screen {
   width: min(420px, calc(100% - 2rem));

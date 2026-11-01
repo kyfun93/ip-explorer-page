@@ -5,9 +5,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>IP Explorer</title>
-  <link rel="stylesheet" href="css/app.css?v=phone1">
+  <style>
+    body.needs-login .top,
+    body.needs-login main,
+    body.needs-login #detail,
+    body.needs-login .import-panel,
+    body.needs-login dialog { display: none !important; }
+  </style>
+  <link rel="stylesheet" href="css/app.css?v=ecrans1">
 </head>
-<body>
+<body class="needs-login">
   <header class="top">
     <div class="top-bar">
       <div>
@@ -54,7 +61,7 @@
     </section>
   </section>
 
-  <section id="login-screen" class="login-screen" hidden>
+  <section id="login-screen" class="login-screen">
     <h2>Code d’accès</h2>
     <p class="hint">Le code est vérifié par le serveur. Aucune question n’est chargée avant une session valable.</p>
     <form id="login-form">
@@ -226,6 +233,6 @@
   <script src="js/ocr.js?v=fonds3"></script>
   <script src="js/demo.js?v=fonds"></script>
   <script src="js/semantic.js?v=partage1"></script>
-  <script src="js/app.js?v=phone1"></script>
+  <script src="js/app.js?v=ecrans1"></script>
 </body>
 </html>

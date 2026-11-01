@@ -353,6 +353,7 @@
   }
 
   async function openDetail(id) {
+    if (!closeSurfaces(null)) return;
     const record = state.questions.find(function (item) { return item.id === id; }) || await repo.getQuestion(id);
     if (!record) return;
     state.scrollY = window.scrollY;
@@ -498,6 +499,34 @@
       org.value = record.organization;
     }
     els.editor.showModal();
+    rememberForm(els.editor);
+  }
+
+  function formSignature(form) {
+    return Array.prototype.map.call(form.elements, function (el) {
+      if (el.type === "file") return String(el.files ? el.files.length : 0);
+      if (el.type === "checkbox" || el.type === "radio") return el.checked ? "1" : "0";
+      return el.value || "";
+    }).join("\u0001");
+  }
+
+  function rememberForm(dialog) {
+    const form = dialog.querySelector("form");
+    dialog.dataset.clean = form ? formSignature(form) : "";
+  }
+
+  function formIsDirty(dialog) {
+    if (!dialog || !dialog.open) return false;
+    const form = dialog.querySelector("form");
+    if (!form) return false;
+    return formSignature(form) !== (dialog.dataset.clean || "");
+  }
+
+  function closeDialog(dialog, force) {
+    if (!dialog || !dialog.open) return true;
+    if (!force && formIsDirty(dialog) && !window.confirm("Des modifications ne sont pas enregistrées. Les abandonner ?")) return false;
+    dialog.close();
+    return true;
   }
 
   function formInput() {
@@ -527,16 +556,30 @@
   document.getElementById("field-service").addEventListener("change", function (event) {
     fillSubEntities(event.target.value, "");
   });
-  document.getElementById("add-button").addEventListener("click", function () { openEditor(null); });
+  document.getElementById("add-button").addEventListener("click", function () {
+    if (!closeSurfaces(null)) return;
+    openEditor(null);
+  });
   document.getElementById("edit-button").addEventListener("click", function () {
     const record = state.questions.find(function (item) { return item.id === state.editingId; });
-    if (record) openEditor(record);
+    if (!record || !closeSurfaces(null)) return;
+    openEditor(record);
   });
-  document.getElementById("cancel-edit").addEventListener("click", function () { els.editor.close(); });
-  document.getElementById("close-import").addEventListener("click", function () { els.importer.close(); });
+  document.getElementById("cancel-edit").addEventListener("click", function () { closeDialog(els.editor, false); });
+  document.getElementById("close-import").addEventListener("click", function () { closeDialog(els.importer, false); });
   document.getElementById("import-button").addEventListener("click", function () {
+    if (!closeSurfaces(null)) return;
     document.getElementById("import-report").innerHTML = "";
+    const files = document.getElementById("import-files");
+    if (files) files.value = "";
     els.importer.showModal();
+    rememberForm(els.importer);
+  });
+  [els.editor, els.importer, document.getElementById("code-change")].forEach(function (dialog) {
+    dialog.addEventListener("cancel", function (event) {
+      if (!formIsDirty(dialog)) return;
+      if (!window.confirm("Des modifications ne sont pas enregistrées. Les abandonner ?")) event.preventDefault();
+    });
   });
   document.getElementById("apply-proposal").addEventListener("click", async function () {
     const record = state.questions.find(function (item) { return item.id === state.editingId; });
@@ -576,6 +619,7 @@
   });
   function showView(next) {
     if (next !== "recherche" && next !== "toutes" && next !== "nouveautes") return;
+    if (!closeSurfaces(null)) return;
     if (next === state.view && state.page === "list") return;
     viewMemory[state.view] = { scrollY: window.scrollY, visibleCount: state.visibleCount };
     state.view = next;
@@ -643,8 +687,9 @@
     render();
   });
   els.importsToggle.addEventListener("click", function () {
-    setMenuOpen(false);
-    setImportsOpen(els.importPanel.hidden);
+    const opening = els.importPanel.hidden;
+    if (opening && !closeSurfaces("imports")) return;
+    setImportsOpen(opening);
   });
   const menuToggle = document.getElementById("menu-toggle");
   const actionMenu = document.getElementById("action-menu");
@@ -652,8 +697,25 @@
     actionMenu.classList.toggle("is-open", open);
     menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
   }
-  menuToggle.addEventListener("click", function () {
-    setMenuOpen(menuToggle.getAttribute("aria-expanded") !== "true");
+  function setFiltersOpen(open) {
+    filterPanel.classList.toggle("is-open", open);
+    filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function closeSurfaces(keep, force) {
+    const dialogs = [els.editor, els.importer, document.getElementById("code-change")];
+    for (let i = 0; i < dialogs.length; i += 1) {
+      if (!closeDialog(dialogs[i], force)) return false;
+    }
+    if (keep !== "menu") setMenuOpen(false);
+    if (keep !== "filters") setFiltersOpen(false);
+    if (keep !== "imports") setImportsOpen(false);
+    return true;
+  }
+  menuToggle.addEventListener("click", function (event) {
+    event.stopPropagation();
+    const opening = menuToggle.getAttribute("aria-expanded") !== "true";
+    if (opening && !closeSurfaces("menu")) return;
+    setMenuOpen(opening);
   });
   actionMenu.addEventListener("click", function (event) {
     if (event.target.closest("button")) setMenuOpen(false);
@@ -662,15 +724,18 @@
     if (!event.target.closest("#action-menu") && event.target !== menuToggle) setMenuOpen(false);
   });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") setMenuOpen(false);
+    if (event.key !== "Escape") return;
+    if (els.editor.open || els.importer.open || document.getElementById("code-change").open) return;
+    if (!els.importPanel.hidden) { setImportsOpen(false); return; }
+    if (filterPanel.classList.contains("is-open")) { setFiltersOpen(false); return; }
+    setMenuOpen(false);
   });
   const filtersToggle = document.getElementById("filters-toggle");
   const filterPanel = document.getElementById("filter-panel");
   filtersToggle.addEventListener("click", function () {
-    const open = !filterPanel.classList.contains("is-open");
-    filterPanel.classList.add("is-open");
-    if (!open) filterPanel.classList.remove("is-open");
-    filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    const opening = !filterPanel.classList.contains("is-open");
+    if (opening && !closeSurfaces("filters")) return;
+    setFiltersOpen(opening);
   });
   function keepFieldVisible() {
     requestAnimationFrame(function () {
@@ -956,6 +1021,7 @@
   readUrl();
 
   function showLogin(message) {
+    closeSurfaces(null, true);
     document.body.classList.add("needs-login");
     document.getElementById("login-screen").hidden = false;
     document.getElementById("logout-button").hidden = true;
