@@ -3,9 +3,9 @@
 <head>
   <base href="https://kyfun93.github.io/ip-explorer-page/">
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>IP Explorer</title>
-  <link rel="stylesheet" href="css/app.css?v=vues3">
+  <link rel="stylesheet" href="css/app.css?v=phone1">
 </head>
 <body>
   <header class="top">
@@ -14,7 +14,8 @@
         <p class="eyebrow">Questions des réunions IP</p>
         <h1>IP Explorer</h1>
       </div>
-      <div class="actions">
+      <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="action-menu">Menu</button>
+      <div class="actions" id="action-menu">
         <button type="button" id="add-button">Ajouter</button>
         <button type="button" id="import-button" class="primary">Importer des PDF</button>
         <button type="button" id="imports-toggle" class="text-button" aria-expanded="false" aria-controls="import-panel">Imports</button>
@@ -66,28 +67,31 @@
   </section>
 
   <main id="home">
+    <form id="search-form" role="search">
+      <label for="query">Recherche</label>
+      <input id="query" name="query" type="search" enterkeyhint="search" placeholder="Un mot, ou une question" autocomplete="off">
+    </form>
     <nav class="views" role="tablist" aria-label="Consultation">
       <button type="button" id="tab-recherche" role="tab" aria-controls="home">Recherche</button>
       <button type="button" id="tab-toutes" role="tab" aria-controls="home">Toutes les questions</button>
       <button type="button" id="tab-nouveautes" role="tab" aria-controls="home">Nouveautés</button>
     </nav>
-    <form id="search-form" role="search">
-      <label for="query">Recherche</label>
-      <input id="query" name="query" type="search" enterkeyhint="search" placeholder="Un mot, ou une question" autocomplete="off">
-    </form>
-    <div id="service-filters" class="chips" role="group" aria-label="Service"></div>
-    <div class="chips" id="sort-filters" role="group" aria-label="Ordre des réunions" hidden>
-      <button type="button" id="sort-recent" data-order="desc">Réunion la plus récente</button>
-      <button type="button" id="sort-old" data-order="asc">Réunion la plus ancienne</button>
-    </div>
-    <div class="period" id="period-filters">
-      <label>De
-        <select id="year-from" aria-label="Année de début"></select>
-      </label>
-      <label>À
-        <select id="year-to" aria-label="Année de fin"></select>
-      </label>
-      <button type="button" id="reset-filters" class="text-button">Réinitialiser</button>
+    <button type="button" id="filters-toggle" aria-expanded="false" aria-controls="filter-panel">Filtres<span id="filters-mark" class="filters-mark" hidden></span></button>
+    <div id="filter-panel">
+      <div id="service-filters" class="chips" role="group" aria-label="Service"></div>
+      <div class="chips" id="sort-filters" role="group" aria-label="Ordre des réunions" hidden>
+        <button type="button" id="sort-recent" data-order="desc">Réunion la plus récente</button>
+        <button type="button" id="sort-old" data-order="asc">Réunion la plus ancienne</button>
+      </div>
+      <div class="period" id="period-filters">
+        <label>De
+          <select id="year-from" aria-label="Année de début"></select>
+        </label>
+        <label>À
+          <select id="year-to" aria-label="Année de fin"></select>
+        </label>
+        <button type="button" id="reset-filters" class="text-button">Réinitialiser</button>
+      </div>
     </div>
     <p class="hint" id="search-hint"></p>
     <p class="hint" id="semantic-status" hidden></p>
@@ -222,6 +226,6 @@
   <script src="js/ocr.js?v=fonds3"></script>
   <script src="js/demo.js?v=fonds"></script>
   <script src="js/semantic.js?v=partage1"></script>
-  <script src="js/app.js?v=sanscode1"></script>
+  <script src="js/app.js?v=phone1"></script>
 </body>
 </html>

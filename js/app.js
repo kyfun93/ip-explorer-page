@@ -321,6 +321,11 @@
     els.sortFilters.hidden = state.view !== "toutes";
     document.getElementById("sort-recent").setAttribute("aria-pressed", state.meetingOrder === "desc" ? "true" : "false");
     document.getElementById("sort-old").setAttribute("aria-pressed", state.meetingOrder === "asc" ? "true" : "false");
+    const filtersActive = (state.serviceId && state.serviceId !== "all") || state.yearFrom || state.yearTo || (state.view === "toutes" && state.meetingOrder === "asc");
+    const mark = document.getElementById("filters-mark");
+    const filtersButton = document.getElementById("filters-toggle");
+    mark.hidden = !filtersActive;
+    filtersButton.classList.toggle("is-active", filtersActive);
   }
 
   function render() {
@@ -562,8 +567,12 @@
   });
   document.getElementById("back-button").addEventListener("click", function () {
     state.page = "list";
+    els.query.value = state.query;
     restoreScroll = true;
     render();
+    if (state.view === "recherche" && els.query.value) {
+      requestAnimationFrame(function () { els.query.scrollIntoView({ block: "nearest" }); });
+    }
   });
   function showView(next) {
     if (next !== "recherche" && next !== "toutes" && next !== "nouveautes") return;
@@ -625,18 +634,69 @@
     applyYears(state.yearFrom, els.yearTo.value);
   });
   document.getElementById("reset-filters").addEventListener("click", function () {
-    state.query = "";
     state.serviceId = "all";
     state.yearFrom = "";
     state.yearTo = "";
+    state.meetingOrder = "desc";
     state.visibleCount = IPSearch.pageSize;
-    els.query.value = "";
     state.page = "list";
     render();
   });
   els.importsToggle.addEventListener("click", function () {
+    setMenuOpen(false);
     setImportsOpen(els.importPanel.hidden);
   });
+  const menuToggle = document.getElementById("menu-toggle");
+  const actionMenu = document.getElementById("action-menu");
+  function setMenuOpen(open) {
+    actionMenu.classList.toggle("is-open", open);
+    menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  menuToggle.addEventListener("click", function () {
+    setMenuOpen(menuToggle.getAttribute("aria-expanded") !== "true");
+  });
+  actionMenu.addEventListener("click", function (event) {
+    if (event.target.closest("button")) setMenuOpen(false);
+  });
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest("#action-menu") && event.target !== menuToggle) setMenuOpen(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") setMenuOpen(false);
+  });
+  const filtersToggle = document.getElementById("filters-toggle");
+  const filterPanel = document.getElementById("filter-panel");
+  filtersToggle.addEventListener("click", function () {
+    const open = !filterPanel.classList.contains("is-open");
+    filterPanel.classList.add("is-open");
+    if (!open) filterPanel.classList.remove("is-open");
+    filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  function keepFieldVisible() {
+    requestAnimationFrame(function () {
+      const active = document.activeElement;
+      if (!active || !active.getBoundingClientRect) return;
+      const tag = active.tagName;
+      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+      const dialog = active.closest("dialog");
+      if (dialog && dialog.open) {
+        const field = active.getBoundingClientRect();
+        const box = dialog.getBoundingClientRect();
+        if (field.bottom > box.bottom - 12) dialog.scrollTop += field.bottom - box.bottom + 24;
+        if (field.top < box.top + 12) dialog.scrollTop -= box.top + 24 - field.top;
+        return;
+      }
+      active.scrollIntoView({ block: "center" });
+    });
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", function () {
+      const inset = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
+      document.documentElement.style.setProperty("--keyboard-inset", inset + "px");
+      keepFieldVisible();
+    });
+  }
+  document.addEventListener("focusin", keepFieldVisible);
   document.getElementById("imports-close").addEventListener("click", function () {
     setImportsOpen(false);
   });
