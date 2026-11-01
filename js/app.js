@@ -302,14 +302,13 @@
       return;
     }
     drawHits(hits);
-    if (viewNow !== "recherche" || !text.collapse(queryNow) || hits.tooVague || !window.IPSemantic) return;
-    IPSemantic.blend(queryNow, scopedQuestions(), hits).then(function (next) {
-      if (!next || generation !== listGeneration) return;
-      if (state.query !== queryNow || state.view !== "recherche" || state.page !== "list") return;
-      const y = window.scrollY;
-      drawHits(next);
-      window.scrollTo(0, y);
-    });
+      if (viewNow !== "recherche" || !text.collapse(queryNow) || hits.tooVague || !window.IPSemantic) return;
+      IPSemantic.blend(queryNow, scopedQuestions(), hits).then(function (next) {
+        if (!next || generation !== listGeneration) return;
+        if (state.query !== queryNow || state.view !== "recherche" || state.page !== "list") return;
+        if (window.scrollY > 24) return;
+        drawHits(next);
+      });
   }
 
   function renderChrome() {
@@ -412,6 +411,7 @@
       cautionText.textContent = "";
       cautionButton.onclick = null;
     }
+    viewMemory[state.view] = { scrollY: state.scrollY, visibleCount: state.visibleCount };
     await renderPdf(record);
     render();
     window.scrollTo(0, 0);
@@ -560,11 +560,6 @@
     if (!closeSurfaces(null)) return;
     openEditor(null);
   });
-  document.getElementById("edit-button").addEventListener("click", function () {
-    const record = state.questions.find(function (item) { return item.id === state.editingId; });
-    if (!record || !closeSurfaces(null)) return;
-    openEditor(record);
-  });
   document.getElementById("cancel-edit").addEventListener("click", function () { closeDialog(els.editor, false); });
   document.getElementById("close-import").addEventListener("click", function () { closeDialog(els.importer, false); });
   document.getElementById("import-button").addEventListener("click", function () {
@@ -613,9 +608,6 @@
     els.query.value = state.query;
     restoreScroll = true;
     render();
-    if (state.view === "recherche" && els.query.value) {
-      requestAnimationFrame(function () { els.query.scrollIntoView({ block: "nearest" }); });
-    }
   });
   function showView(next) {
     if (next !== "recherche" && next !== "toutes" && next !== "nouveautes") return;
@@ -751,7 +743,7 @@
         if (field.top < box.top + 12) dialog.scrollTop -= box.top + 24 - field.top;
         return;
       }
-      active.scrollIntoView({ block: "center" });
+      if (!active.closest("dialog")) return;
     });
   }
   if (window.visualViewport) {
@@ -855,6 +847,19 @@
         notes: parsed.notes || []
       };
     }
+    if (parsed.incomplete) {
+      return {
+        fileName: name,
+        ignored: true,
+        reason: "La lecture est incomplète : une partie du tableau n’a pas été retenue. Aucune fiche n’a été ajoutée.",
+        added: 0,
+        duplicates: 0,
+        preserved: 0,
+        skippedFile: false,
+        anomalies: parsed.anomalies || [],
+        notes: parsed.notes || []
+      };
+    }
     if (!parsed.pairs.length) {
       const failed = pages.map(function (page) { return page.ocrError; }).filter(Boolean)[0];
       const reason = failed || (parsed.anomalies[0] && parsed.anomalies[0].message) || "Aucun tableau questions/réponses n’a été lu.";
@@ -899,13 +904,20 @@
         await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
         return bilan;
       }
+      bilan.sharedDuplicates = shared.duplicates || 0;
+      if (shared.fileDuplicate) {
+        const created = bilan.createdIds || [];
+        for (let i = 0; i < created.length; i += 1) await repo.removeQuestion(created[i]);
+        bilan.added = 0;
+        bilan.skippedFile = true;
+        return bilan;
+      }
       const uploaded = await remote.uploadPdf(sha, new Blob([buffer], { type: "application/pdf" }));
       if (uploaded.sessionExpired) {
         bilan.sessionExpired = true;
         await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
         return bilan;
       }
-      bilan.sharedDuplicates = shared.duplicates || 0;
     }
     return bilan;
   }

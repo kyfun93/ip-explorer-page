@@ -313,6 +313,36 @@
     };
   }
 
+  function readingCoverage(prepared, pairs) {
+    const blob = text.normalize((pairs || []).map(function (pair) {
+      return (pair.question || "") + " " + (pair.answer || "");
+    }).join(" "));
+    let total = 0;
+    let missing = 0;
+    let stopped = false;
+    (prepared || []).forEach(function (page) {
+      if (stopped) return;
+      const limit = page.header ? page.header.bottom - 4 : page.height;
+      page.lines.forEach(function (line) {
+        if (stopped) return;
+        if (line.y > limit || line.y < 120) return;
+        const full = lineString(line);
+        if (isStopText(full) || /^signature\b/i.test(text.collapse(full))) {
+          stopped = true;
+          return;
+        }
+        if (isFooterText(full) || isSignatureLine(full) || isLoneDate(full) || isLabel(full)) return;
+        if (text.organizationHeading(full)) return;
+        text.normalize(full).split(" ").forEach(function (word) {
+          if (!word || word.length < 4) return;
+          total += 1;
+          if (blob.indexOf(word) === -1) missing += 1;
+        });
+      });
+    });
+    return { total: total, missing: missing };
+  }
+
   function usablePair(pair) {
     return pair.question && /[A-Za-zÀ-ÿ]/.test(pair.question) && pair.question.length >= 8;
   }
@@ -614,6 +644,11 @@
     if (signedDate && signedDate !== meetingDate) {
       notes.push("Date de signature " + text.formatMeetingDate(signedDate) + ", distincte de la date de réunion.");
     }
+    const coverage = readingCoverage(prepared, closed);
+    const incomplete = coverage.total >= 40 && coverage.missing / coverage.total > 0.2;
+    if (incomplete) {
+      notes.push("La lecture est incomplète : une partie du tableau n’a pas été retenue. Aucune fiche n’a été ajoutée.");
+    }
     closed.forEach(function (pair) {
       if (!pair.readingCaution) return;
       const label = pair.number ? "n° " + pair.number : "sans numéro";
@@ -629,7 +664,8 @@
       signedDate: signedDate,
       serviceId: serviceId,
       serviceMention: serviceMention,
-      pairs: closed,
+      incomplete: incomplete,
+      pairs: incomplete ? [] : closed,
       anomalies: anomalies,
       notes: notes
     };

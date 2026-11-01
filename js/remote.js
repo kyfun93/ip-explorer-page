@@ -176,7 +176,13 @@
       });
       if (result.sessionExpired) return { ok: false, sessionExpired: true, added: 0, duplicates: 0 };
       const body = result.body || {};
-      return { ok: result.ok, sessionExpired: false, added: body.added || 0, duplicates: body.duplicates || 0 };
+      return {
+        ok: result.ok,
+        sessionExpired: false,
+        added: body.added || 0,
+        duplicates: body.duplicates || 0,
+        fileDuplicate: body.fileDuplicate === true
+      };
     }
 
     async function uploadPdf(sha256, blob) {

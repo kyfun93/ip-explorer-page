@@ -15,7 +15,7 @@
 
 * { box-sizing: border-box; }
 
-html { color-scheme: dark; overflow-x: clip; }
+html { color-scheme: dark; }
 
 body {
   margin: 0;
@@ -23,9 +23,8 @@ body {
   background: radial-gradient(circle at top, #141a32 0, #05060b 50%, #02030a 100%);
   color: var(--text-main);
   line-height: 1.45;
-  min-height: 100vh;
-  min-height: 100dvh;
-  overflow-x: clip;
+  min-height: 100%;
+  max-width: 100%;
   padding-bottom: var(--keyboard-inset, 0px);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -67,8 +66,7 @@ body.needs-login dialog { display: none !important; }
   width: 100%;
   margin: 0;
   padding: max(0.8rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.8rem max(1rem, env(safe-area-inset-left));
-  background: rgba(5, 6, 11, 0.95);
-  backdrop-filter: blur(10px);
+  background: #05060b;
   border-bottom: 1px solid rgba(0, 229, 255, 0.2);
 }
 
@@ -118,9 +116,11 @@ button, .file input {
   touch-action: manipulation;
 }
 
-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-neon);
+@media (hover: hover) and (pointer: fine) {
+  button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-neon);
+  }
 }
 
 button:active {
@@ -307,6 +307,8 @@ button.more { width: 100%; margin: 0.2rem 0 1rem; }
   margin: 0 0 0.7rem;
   box-shadow: none;
 }
+
+.card > * { pointer-events: none; }
 
 .card:hover {
   background: #1a1f33;

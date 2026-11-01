@@ -179,6 +179,7 @@
         }
         let added = 0;
         let duplicates = 0;
+        const createdIds = [];
         const consumedNumbers = {};
         for (let i = 0; i < parsed.pairs.length; i += 1) {
           const pair = parsed.pairs[i];
@@ -219,6 +220,7 @@
             duplicates += 1;
           } else {
             await storage.putQuestion(record);
+            createdIds.push(record.id);
             added += 1;
           }
         }
@@ -241,6 +243,7 @@
           duplicates: duplicates,
           preserved: preserved,
           skippedFile: false,
+          createdIds: createdIds,
           reprocessed: Boolean(existing),
           anomalies: parsed.anomalies || [],
           notes: parsed.notes || [],
