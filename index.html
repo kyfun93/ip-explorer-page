@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <base href="https://kyfun93.github.io/ip-explorer-page/">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IP Explorer</title>
+  <link rel="stylesheet" href="css/app.css?v=vues3">
+</head>
+<body>
+  <header class="top">
+    <div class="top-bar">
+      <div>
+        <p class="eyebrow">Questions des réunions IP</p>
+        <h1>IP Explorer</h1>
+      </div>
+      <div class="actions">
+        <button type="button" id="add-button">Ajouter</button>
+        <button type="button" id="import-button" class="primary">Importer des PDF</button>
+        <button type="button" id="imports-toggle" class="text-button" aria-expanded="false" aria-controls="import-panel">Imports</button>
+        <button type="button" id="change-code-button" hidden>Changer le code</button>
+        <button type="button" id="logout-button" hidden>Déconnexion</button>
+      </div>
+    </div>
+  </header>
+
+  <section id="import-panel" class="import-panel" hidden>
+    <div class="section-head">
+      <h2>Gestion des imports</h2>
+      <button type="button" id="imports-close" class="text-button">Fermer</button>
+    </div>
+    <p class="banner" id="fonds-status" hidden></p>
+    <p class="fine">Les questions restent dans ce navigateur. Les PDF ne sont pas publiés.</p>
+    <section id="fonds-bilan" class="bilan">
+      <h2>État du fonds</h2>
+      <div class="bilan-grid">
+        <section>
+          <h3>Importés</h3>
+          <ul id="bilan-imported"></ul>
+        </section>
+        <section>
+          <h3>Partiellement importés</h3>
+          <ul id="bilan-partial"></ul>
+        </section>
+        <section>
+          <h3>En échec</h3>
+          <ul id="bilan-failed"></ul>
+        </section>
+        <section>
+          <h3>Exclus</h3>
+          <ul id="bilan-excluded"></ul>
+        </section>
+      </div>
+    </section>
+  </section>
+
+  <section id="login-screen" class="login-screen" hidden>
+    <h2>Code d’accès</h2>
+    <p class="hint">Le code est vérifié par le serveur. Aucune question n’est chargée avant une session valable.</p>
+    <form id="login-form">
+      <label>Code commun
+        <input id="login-code" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="error" id="login-error" hidden></p>
+      <button type="submit" class="primary">Entrer</button>
+    </form>
+  </section>
+
+  <main id="home">
+    <nav class="views" role="tablist" aria-label="Consultation">
+      <button type="button" id="tab-recherche" role="tab" aria-controls="home">Recherche</button>
+      <button type="button" id="tab-toutes" role="tab" aria-controls="home">Toutes les questions</button>
+      <button type="button" id="tab-nouveautes" role="tab" aria-controls="home">Nouveautés</button>
+    </nav>
+    <form id="search-form" role="search">
+      <label for="query">Recherche</label>
+      <input id="query" name="query" type="search" enterkeyhint="search" placeholder="Un mot, ou une question" autocomplete="off">
+    </form>
+    <div id="service-filters" class="chips" role="group" aria-label="Service"></div>
+    <div class="chips" id="sort-filters" role="group" aria-label="Ordre des réunions" hidden>
+      <button type="button" id="sort-recent" data-order="desc">Réunion la plus récente</button>
+      <button type="button" id="sort-old" data-order="asc">Réunion la plus ancienne</button>
+    </div>
+    <div class="period" id="period-filters">
+      <label>De
+        <select id="year-from" aria-label="Année de début"></select>
+      </label>
+      <label>À
+        <select id="year-to" aria-label="Année de fin"></select>
+      </label>
+      <button type="button" id="reset-filters" class="text-button">Réinitialiser</button>
+    </div>
+    <p class="hint" id="search-hint"></p>
+    <p class="hint" id="semantic-status" hidden></p>
+    <section>
+      <div class="section-head">
+        <h2 id="list-title">Recherche</h2>
+        <p id="list-count"></p>
+      </div>
+      <div id="list"></div>
+    </section>
+  </main>
+
+  <article id="detail" hidden>
+    <button type="button" id="back-button" class="text-button">Retour</button>
+    <p class="meta" id="detail-meta"></p>
+    <h2 id="detail-question"></h2>
+    <p class="org" id="detail-org" hidden></p>
+    <h3>Réponse</h3>
+    <p id="detail-answer" class="answer"></p>
+    <p class="fine" id="detail-extra"></p>
+    <button type="button" id="apply-proposal" hidden>Classer ce compte rendu dans CT</button>
+    <div id="detail-reading" class="reading" hidden>
+      <p id="detail-reading-text"></p>
+      <button type="button" id="detail-reading-page">Voir la page source</button>
+    </div>
+    <div id="pdf-box" hidden>
+      <h3>PDF source</h3>
+      <div id="pdf-pages" class="chips"></div>
+      <canvas id="pdf-canvas"></canvas>
+    </div>
+    <button type="button" id="edit-button">Corriger</button>
+  </article>
+
+  <dialog id="editor">
+    <form id="editor-form" method="dialog">
+      <h2 id="editor-title">Ajouter une question</h2>
+      <label>Question
+        <textarea id="field-question" required rows="5"></textarea>
+      </label>
+      <label>Réponse
+        <textarea id="field-answer" rows="5" placeholder="Laisser vide s’il n’y a pas de réponse"></textarea>
+      </label>
+      <label>Service
+        <select id="field-service"></select>
+      </label>
+      <label>Sous-entité
+        <select id="field-sub"></select>
+      </label>
+      <label>Lieu mentionné
+        <input id="field-place" type="text" autocomplete="off">
+      </label>
+      <label>Date de réunion
+        <input id="field-date" type="date">
+      </label>
+      <label>Numéro d’origine
+        <input id="field-number" type="text" autocomplete="off" placeholder="Laisser vide s’il n’y en a pas">
+      </label>
+      <label>Organisation syndicale
+        <select id="field-org">
+          <option value="">Non indiquée</option>
+          <option>CGT</option>
+          <option>UNSA</option>
+          <option>CFE-CGC</option>
+          <option>CFDT</option>
+          <option>FO</option>
+          <option>SUD</option>
+          <option>Solidaires</option>
+        </select>
+      </label>
+      <p class="error" id="editor-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="delete-button" class="danger" hidden>Supprimer</button>
+        <button type="button" id="cancel-edit">Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="code-change">
+    <form id="change-code-form" method="dialog">
+      <h2>Changer le code</h2>
+      <p class="hint">Le nouveau code ferme toutes les sessions déjà ouvertes, sur tous les appareils.</p>
+      <label>Code actuel
+        <input id="current-code" type="password" autocomplete="current-password" required>
+      </label>
+      <label>Nouveau code
+        <input id="next-code" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+      <label>Confirmation
+        <input id="confirm-code" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+      <p class="error" id="change-code-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-code-change">Annuler</button>
+        <button type="submit" class="primary">Enregistrer le code</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="importer">
+    <form id="import-form" method="dialog">
+      <h2>Importer des comptes rendus</h2>
+      <p class="hint">Les paires complètes sont ajoutées directement. Un fichier déjà lu avec la lecture actuelle n’est pas recopié. Une ancienne lecture est remplacée, sans écraser une correction manuelle.</p>
+      <label>Service, si vous voulez le forcer
+        <select id="import-service"></select>
+      </label>
+      <label class="file">PDF
+        <input id="import-files" type="file" accept="application/pdf,.pdf" multiple>
+      </label>
+      <div id="import-report"></div>
+      <div class="dialog-actions">
+        <button type="button" id="close-import">Fermer</button>
+        <button type="submit" class="primary" id="run-import">Lire les PDF</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <script src="config.local.js"></script>
+  <script src="js/config.js?v=partage1"></script>
+  <script src="vendor/pdf.min.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js"></script>
+  <script src="js/referential.js"></script>
+  <script src="js/text.js?v=reprise3"></script>
+  <script src="js/related.js"></script>
+  <script src="js/search.js?v=vues"></script>
+  <script src="js/parse-pairs.js?v=depot1"></script>
+  <script src="js/repository.js?v=test1"></script>
+  <script src="js/gate.js?v=partage1"></script>
+  <script src="js/remote.js?v=test1"></script>
+  <script src="js/pdf-extract.js?v=fonds"></script>
+  <script src="js/ocr.js?v=fonds3"></script>
+  <script src="js/demo.js?v=fonds"></script>
+  <script src="js/semantic.js?v=partage1"></script>
+  <script src="js/app.js?v=test1"></script>
+</body>
+</html>
