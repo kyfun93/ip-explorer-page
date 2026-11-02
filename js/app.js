@@ -335,6 +335,7 @@
   function render() {
     writeUrl();
     const showDetail = state.page === "detail";
+    document.body.classList.toggle("is-detail", showDetail);
     els.home.hidden = showDetail;
     els.detail.hidden = !showDetail;
     renderChrome();
@@ -489,7 +490,7 @@
 
   function openEditor(record) {
     state.editingId = record ? record.id : null;
-    document.getElementById("editor-title").textContent = record ? "Corriger la question" : "Ajouter une question";
+    document.getElementById("editor-title").textContent = record ? "Corriger la question" : "Ajouter manuellement une question";
     document.getElementById("delete-button").hidden = !record;
     document.getElementById("editor-error").hidden = true;
     document.getElementById("field-question").value = record ? record.question : "";

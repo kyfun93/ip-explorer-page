@@ -49,7 +49,7 @@ self.onmessage = function (event) {
   const message = event.data || {};
   if (message.type !== "embed") return;
   getExtractor().then(function (extractor) {
-    return extractor(message.texts, { pooling: "mean", normalize: true }).then(function (output) {
+    return extractor(message.texts, { pooling: "mean", normalize: true, truncation: true }).then(function (output) {
       self.postMessage({
         type: "vectors",
         id: message.id,

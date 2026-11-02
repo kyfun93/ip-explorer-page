@@ -4,6 +4,7 @@
   const SENSE_WINDOW = 0.02;
   const SENSE_STRONG = 0.86;
   const vectors = new Map();
+  const queryVectors = new Map();
   const status = { phase: "idle", done: 0, total: 0, percent: null, note: "" };
   let repo = null;
   let worker = null;
@@ -11,9 +12,20 @@
   const pending = new Map();
   let chain = Promise.resolve();
   let queuedRecords = null;
-  let running = false;
   let listener = function () {};
   let modelWarm = false;
+  let embedOverride = null;
+  let queryWaiting = 0;
+  let runToken = 0;
+  const runStats = { reused: 0, embedded: 0, failed: 0, loadMs: 0, embedMs: 0, batches: 0 };
+
+  function now() {
+    return globalThis.performance && performance.now ? performance.now() : Date.now();
+  }
+
+  function pause(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
 
   function emit(justReady) {
     listener({
@@ -29,10 +41,10 @@
   function statusText() {
     if (status.phase === "download") {
       const percent = status.percent === null ? "" : " (" + status.percent + " %)";
-      return "Recherche par le sens : téléchargement du modèle français, environ 140 Mo, une seule fois sur cet appareil" + percent + ".";
+      return "Recherche par le sens : téléchargement du modèle de recherche, environ 140 Mo, une seule fois sur cet appareil" + percent + ".";
     }
     if (status.phase === "index") {
-      return "Recherche par le sens : index " + status.done + " sur " + status.total + ". Les mots-clés fonctionnent déjà.";
+      return "Vous pouvez déjà rechercher. Préparation du sens en arrière-plan : " + status.done + "/" + status.total + ".";
     }
     if (status.phase === "loading") return status.note || "Chargement du modèle déjà enregistré sur cet appareil.";
     if (status.phase === "unavailable") return status.note || "La recherche par le sens n’a pas pu se charger. Les mots-clés restent disponibles.";
@@ -53,7 +65,7 @@
 
   function ensureWorker() {
     if (worker) return worker;
-    worker = new Worker("js/semantic-worker.js?v=sens", { type: "module" });
+    worker = new Worker("js/semantic-worker.js?v=sens2", { type: "module" });
     worker.onmessage = function (event) {
       const message = event.data || {};
       if (message.type === "progress") {
@@ -80,6 +92,7 @@
   }
 
   function embedTexts(texts) {
+    if (embedOverride) return Promise.resolve(embedOverride(texts));
     const run = chain.then(function () {
       const id = ++requestId;
       return new Promise(function (resolve, reject) {
@@ -96,6 +109,27 @@
     return run;
   }
 
+  function planBatches(records) {
+    const ordered = records.slice().sort(function (a, b) {
+      return passageBody(a).length - passageBody(b).length;
+    });
+    const batches = [];
+    let current = [];
+    let base = 0;
+    ordered.forEach(function (record) {
+      const len = passageBody(record).length;
+      const canJoin = current.length > 0 && len <= 280 && base <= 280 && len <= base * 1.15 && current.length < 4;
+      if (current.length && !canJoin) {
+        batches.push(current);
+        current = [];
+      }
+      if (!current.length) base = len;
+      current.push(record);
+    });
+    if (current.length) batches.push(current);
+    return batches;
+  }
+
   function dot(left, right) {
     let score = 0;
     const width = Math.min(left.length, right.length);
@@ -103,10 +137,34 @@
     return score;
   }
 
+  function vectorOk(vector) {
+    return vector && vector.length === 384;
+  }
+
+  async function saveBatch(batch, rows, token) {
+    if (token !== runToken) return false;
+    const saving = batch.map(function (record, index) {
+      const vector = new Float32Array(rows[index] || []);
+      vectors.set(record.id, vector);
+      return { id: record.id, model: MODEL_KEY, hash: passageHash(record), vector: vector };
+    });
+    const started = now();
+    await repo.putEmbeddings(saving);
+    runStats.saveMs = (runStats.saveMs || 0) + (now() - started);
+    if (token !== runToken) return false;
+    status.done += batch.length;
+    runStats.embedded += batch.length;
+    status.phase = "index";
+    emit(false);
+    return true;
+  }
+
   async function sync(records) {
+    const token = runToken;
     const list = records || [];
     const byId = {};
     list.forEach(function (record) { byId[record.id] = record; });
+    const loadStarted = now();
     let stored = [];
     try {
       stored = await repo.allEmbeddings();
@@ -116,10 +174,13 @@
       emit(false);
       return;
     }
+    runStats.loadMs = now() - loadStarted;
+    if (token !== runToken) return;
+    vectors.clear();
     const stale = [];
     stored.forEach(function (item) {
       const record = byId[item.id];
-      if (!record || item.model !== MODEL_KEY || item.hash !== passageHash(record)) {
+      if (!record || item.model !== MODEL_KEY || item.hash !== passageHash(record) || !vectorOk(item.vector)) {
         stale.push(item.id);
         return;
       }
@@ -129,9 +190,11 @@
       stale.forEach(function (id) { vectors.delete(id); });
       await repo.deleteEmbeddings(stale);
     }
+    if (token !== runToken) return;
     const todo = list.filter(function (record) { return !vectors.has(record.id); });
+    runStats.reused = list.length - todo.length;
     status.total = list.length;
-    status.done = list.length - todo.length;
+    status.done = runStats.reused;
     if (!todo.length) {
       status.phase = "ready";
       status.percent = null;
@@ -141,45 +204,85 @@
     }
     status.phase = "index";
     emit(false);
-    try {
-      for (let i = 0; i < todo.length; i += 4) {
-        const batch = todo.slice(i, i + 4);
-        const texts = batch.map(function (record) { return "passage: " + passageBody(record); });
+    const batches = planBatches(todo);
+    let failed = 0;
+    for (let i = 0; i < batches.length; i += 1) {
+      if (token !== runToken) return;
+      while (queryWaiting && token === runToken) await pause(20);
+      await pause(0);
+      if (token !== runToken) return;
+      const batch = batches[i];
+      const texts = batch.map(function (record) { return "passage: " + passageBody(record); });
+      const started = now();
+      try {
         const rows = await embedTexts(texts);
+        runStats.embedMs += now() - started;
+        runStats.batches += 1;
         modelWarm = true;
-        const saving = batch.map(function (record, index) {
-          const vector = new Float32Array(rows[index] || []);
-          vectors.set(record.id, vector);
-          return { id: record.id, model: MODEL_KEY, hash: passageHash(record), vector: vector };
-        });
-        await repo.putEmbeddings(saving);
-        status.done += batch.length;
-        status.phase = "index";
-        emit(false);
+        if (!rows || rows.length !== batch.length || !vectorOk(rows[0])) throw new Error("vecteur incomplet");
+        const saved = await saveBatch(batch, rows, token);
+        if (!saved) return;
+      } catch (error) {
+        if (token !== runToken) return;
+        if (batch.length === 1) {
+          failed += 1;
+          runStats.failed += 1;
+          continue;
+        }
+        for (let j = 0; j < batch.length; j += 1) {
+          if (token !== runToken) return;
+          const record = batch[j];
+          try {
+            const oneStarted = now();
+            const one = await embedTexts(["passage: " + passageBody(record)]);
+            runStats.embedMs += now() - oneStarted;
+            runStats.batches += 1;
+            modelWarm = true;
+            if (!one || !vectorOk(one[0])) throw new Error("vecteur incomplet");
+            const saved = await saveBatch([record], one, token);
+            if (!saved) return;
+          } catch (again) {
+            if (token !== runToken) return;
+            failed += 1;
+            runStats.failed += 1;
+          }
+        }
       }
-      status.phase = "ready";
-      status.percent = null;
-      status.note = "";
-      emit(true);
-    } catch (error) {
+    }
+    if (token !== runToken) return;
+    if (failed && runStats.embedded === 0 && runStats.reused === 0) {
       status.phase = "unavailable";
       status.note = "La recherche par le sens n’a pas pu se charger. Les mots-clés restent disponibles.";
       emit(false);
+      return;
     }
+    status.phase = "ready";
+    status.percent = null;
+    status.note = "";
+    emit(true);
   }
 
-  async function pump() {
-    if (running) return;
-    running = true;
-    try {
-      while (queuedRecords) {
-        const records = queuedRecords;
-        queuedRecords = null;
-        await sync(records);
-      }
-    } finally {
-      running = false;
-      if (queuedRecords) pump();
+  let tail = Promise.resolve();
+
+  function schedule(records) {
+    queuedRecords = records;
+    const job = tail.then(function () { return drain(); });
+    tail = job.then(function () {}, function () {});
+    return job;
+  }
+
+  async function drain() {
+    while (queuedRecords) {
+      const records = queuedRecords;
+      queuedRecords = null;
+      runStats.reused = 0;
+      runStats.embedded = 0;
+      runStats.failed = 0;
+      runStats.loadMs = 0;
+      runStats.embedMs = 0;
+      runStats.batches = 0;
+      runStats.saveMs = 0;
+      await sync(records);
     }
   }
 
@@ -188,23 +291,28 @@
     listener = onChange || listener;
   }
 
-  function schedule(records) {
-    queuedRecords = records;
-    pump();
-  }
-
   async function embedQuery(query) {
-    if (!modelWarm) {
-      status.note = "Chargement du modèle sur cet appareil.";
-      if (status.phase === "ready") status.phase = "loading";
+    const normalized = String(query || "").replace(/\s+/g, " ").trim().slice(0, 400);
+    if (queryVectors.has(normalized)) return queryVectors.get(normalized);
+    queryWaiting += 1;
+    try {
+      if (!modelWarm) {
+        status.note = "Chargement du modèle sur cet appareil.";
+        if (status.phase === "ready") status.phase = "loading";
+        emit(false);
+      }
+      const rows = await embedTexts(["query: " + normalized]);
+      modelWarm = true;
+      status.note = "";
+      if (status.phase === "loading" || status.phase === "download") status.phase = "ready";
       emit(false);
+      const vector = new Float32Array(rows[0] || []);
+      if (queryVectors.size >= 30) queryVectors.delete(queryVectors.keys().next().value);
+      queryVectors.set(normalized, vector);
+      return vector;
+    } finally {
+      queryWaiting -= 1;
     }
-    const rows = await embedTexts(["query: " + String(query || "").replace(/\s+/g, " ").trim().slice(0, 400)]);
-    modelWarm = true;
-    status.note = "";
-    if (status.phase === "loading" || status.phase === "download") status.phase = "ready";
-    emit(false);
-    return new Float32Array(rows[0] || []);
   }
 
   function blend(query, records, keywordHits) {
@@ -263,7 +371,9 @@
   }
 
   function dropIndex() {
+    runToken += 1;
     vectors.clear();
+    queryVectors.clear();
     queuedRecords = null;
     status.phase = "idle";
     status.done = 0;
@@ -283,6 +393,18 @@
     schedule: schedule,
     blend: blend,
     inspect: inspect,
+    stats: function () {
+      return {
+        reused: runStats.reused,
+        embedded: runStats.embedded,
+        failed: runStats.failed,
+        loadMs: Math.round(runStats.loadMs),
+        embedMs: Math.round(runStats.embedMs),
+        saveMs: Math.round(runStats.saveMs || 0),
+        batches: runStats.batches
+      };
+    },
+    setEmbedder: function (fn) { embedOverride = fn; },
     isReady: function () { return status.phase === "ready"; },
     statusText: statusText,
     modelKey: MODEL_KEY

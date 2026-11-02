@@ -463,7 +463,7 @@ footer {
   .bilan-grid { grid-template-columns: 1fr; }
   dialog { width: min(640px, calc(100% - 1rem)); margin: auto; }
   dialog .dialog-actions, .dialog-actions { flex-direction: column; }
-  .dialog-actions button, #detail > button, #back-button { width: 100%; min-height: 44px; }
+  .dialog-actions button, #detail > button:not(#back-button) { width: 100%; min-height: 44px; }
   #pdf-canvas { max-width: 100%; }
   .login-screen { margin: 1rem auto; }
 }
@@ -472,3 +472,30 @@ footer {
   .login-screen { margin: 0.6rem auto; }
   dialog { max-height: calc(100dvh - var(--keyboard-inset, 0px) - 0.5rem); }
 }
+
+/* La croix reste en haut à droite, y compris pendant le défilement de la fiche. */
+body.is-detail #back-button {
+  position: fixed;
+  z-index: 40;
+  top: max(0.4rem, env(safe-area-inset-top));
+  right: max(0.7rem, calc((100vw - 920px) / 2));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  font-size: 2rem;
+  line-height: 1;
+  background: #12141c;
+}
+@media (max-width: 900px) {
+  body.is-detail .menu-toggle { visibility: hidden; }
+  body.is-detail #back-button { right: max(0.55rem, env(safe-area-inset-right)); }
+}
+@media (min-width: 901px) {
+  body.is-detail .actions { margin-right: 3.4rem; }
+}
+#semantic-status { font-size: 0.85rem; }

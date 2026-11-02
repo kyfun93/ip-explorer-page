@@ -12,7 +12,7 @@
     body.needs-login .import-panel,
     body.needs-login dialog { display: none !important; }
   </style>
-  <link rel="stylesheet" href="css/app.css?v=tel1">
+  <link rel="stylesheet" href="css/app.css?v=croix1">
 </head>
 <body class="needs-login">
   <header class="top">
@@ -23,7 +23,7 @@
       </div>
       <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="action-menu">Menu</button>
       <div class="actions" id="action-menu">
-        <button type="button" id="add-button">Ajouter</button>
+        <button type="button" id="add-button">Ajouter manuellement</button>
         <button type="button" id="import-button" class="primary">Ajouter PDF</button>
         <button type="button" id="logout-button" hidden>Déconnexion</button>
       </div>
@@ -111,7 +111,7 @@
   </main>
 
   <article id="detail" hidden>
-    <button type="button" id="back-button" class="text-button">Retour</button>
+    <button type="button" id="back-button" class="close-detail" aria-label="Fermer la fiche" title="Fermer la fiche"><span aria-hidden="true">×</span></button>
     <p class="meta" id="detail-meta"></p>
     <h2 id="detail-question"></h2>
     <p class="org" id="detail-org" hidden></p>
@@ -132,7 +132,7 @@
 
   <dialog id="editor">
     <form id="editor-form" method="dialog">
-      <h2 id="editor-title">Ajouter une question</h2>
+      <h2 id="editor-title">Ajouter manuellement une question</h2>
       <label>Question
         <textarea id="field-question" required rows="5"></textarea>
       </label>
@@ -230,7 +230,7 @@
   <script src="js/pdf-extract.js?v=tel1"></script>
   <script src="js/ocr.js?v=tel1"></script>
   <script src="js/demo.js?v=fonds"></script>
-  <script src="js/semantic.js?v=partage1"></script>
-  <script src="js/app.js?v=tel1"></script>
+  <script src="js/semantic.js?v=sens2"></script>
+  <script src="js/app.js?v=croix1"></script>
 </body>
 </html>
