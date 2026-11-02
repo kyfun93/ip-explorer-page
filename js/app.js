@@ -186,10 +186,11 @@
     return text.collapse(state.query) ? "Résultats" : "Recherche";
   }
 
-  function drawHits(hits) {
+  function drawHits(hits, phase) {
     const hasQuery = state.view === "recherche" && text.collapse(state.query).length > 0;
     const filters = activeFilterLabel();
     const sense = hits.some(function (hit) { return hit.kind === "sens"; });
+    const status = hasQuery ? IPSearch.searchStatus(hits.length, phase || "ready", !!hits.tooVague) : null;
     els.title.textContent = viewTitle();
     if (state.view === "toutes") {
       els.hint.textContent = state.meetingOrder === "asc"
@@ -197,6 +198,8 @@
         : "Classées de la réunion la plus récente à la plus ancienne.";
     } else if (state.view === "nouveautes") {
       els.hint.textContent = "Classées par date d’ajout. La date de réunion est indiquée à part.";
+    } else if (status && status.hint) {
+      els.hint.textContent = status.hint;
     } else if (hits.tooVague) {
       els.hint.textContent = "Cette recherche est trop vague pour isoler une question. Ajoutez un mot plus précis.";
     } else if (sense) {
@@ -206,17 +209,21 @@
     } else {
       els.hint.textContent = "";
     }
-    const countLabel = hits.length > 1 ? hits.length + " questions" : (hits.length === 1 ? "1 question" : "Aucun résultat");
+    const countLabel = status && !hits.length && status.count
+      ? status.count
+      : (hits.length > 1 ? hits.length + " questions" : (hits.length === 1 ? "1 question" : "Aucun résultat"));
     els.count.textContent = filters ? countLabel + " · " + filters : countLabel;
     els.list.innerHTML = "";
     if (!hits.length) {
       const empty = document.createElement("p");
       empty.className = "empty";
-      empty.textContent = hits.tooVague
-        ? "Aucun résultat : les mots saisis sont trop généraux."
-        : (state.questions.length
-          ? "Aucun résultat pertinent."
-          : "Aucune question pour le moment. Ajoutez-en une, ou importez un compte rendu PDF.");
+      empty.textContent = !state.questions.length
+        ? "Aucune question pour le moment. Ajoutez-en une, ou importez un compte rendu PDF."
+        : (status && status.empty
+          ? status.empty
+          : (hits.tooVague
+            ? "Aucun résultat : les mots saisis sont trop généraux."
+            : "Aucun résultat pertinent."));
       els.list.appendChild(empty);
       return;
     }
@@ -294,6 +301,15 @@
     return IPSearch.searchQuestions(state.questions, state.query, state.serviceId, periodOf());
   }
 
+  function sensePhase(hits) {
+    if (state.view !== "recherche" || !text.collapse(state.query) || hits.tooVague) return "ready";
+    if (!window.IPSemantic) return "unavailable";
+    const phase = IPSemantic.phase();
+    if (phase === "unavailable") return "unavailable";
+    if (phase === "ready") return "pending";
+    return "pending";
+  }
+
   function renderList() {
     const hits = currentHits();
     const generation = ++listGeneration;
@@ -306,14 +322,20 @@
       els.list.innerHTML = "";
       return;
     }
-    drawHits(hits);
-      if (viewNow !== "recherche" || !text.collapse(queryNow) || hits.tooVague || !window.IPSemantic) return;
-      IPSemantic.blend(queryNow, scopedQuestions(), hits).then(function (next) {
-        if (!next || generation !== listGeneration) return;
-        if (state.query !== queryNow || state.view !== "recherche" || state.page !== "list") return;
-        if (window.scrollY > 24) return;
-        drawHits(next);
-      });
+    const phase = sensePhase(hits);
+    drawHits(hits, phase);
+    if (viewNow !== "recherche" || !text.collapse(queryNow) || hits.tooVague || !window.IPSemantic) return;
+    if (IPSemantic.phase() !== "ready") return;
+    IPSemantic.blend(queryNow, scopedQuestions(), hits).then(function (next) {
+      if (generation !== listGeneration) return;
+      if (state.query !== queryNow || state.view !== "recherche" || state.page !== "list") return;
+      if (window.scrollY > 24) return;
+      if (!next) {
+        if (IPSemantic.phase() === "unavailable") drawHits(hits, "unavailable");
+        return;
+      }
+      drawHits(next, "ready");
+    });
   }
 
   function renderChrome() {
@@ -926,10 +948,21 @@
         for (let i = 0; i < created.length; i += 1) await repo.removeQuestion(created[i]);
         bilan.added = 0;
         bilan.skippedFile = true;
-        return bilan;
       }
-      const uploaded = await remote.uploadPdf(sha, new Blob([buffer], { type: "application/pdf" }));
-      if (uploaded.sessionExpired) {
+      let uploaded = null;
+      if (shared.ok === true) {
+        uploaded = await remote.uploadPdf(sha, new Blob([buffer], { type: "application/pdf" }));
+        if (uploaded.sessionExpired) {
+          bilan.sessionExpired = true;
+          await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
+          return bilan;
+        }
+      }
+      const outcome = IPRemote.sharedImportOutcome(shared, uploaded);
+      bilan.sharedFailed = outcome.sharedFailed;
+      bilan.uploadFailed = outcome.uploadFailed;
+      bilan.sharedMessage = outcome.message;
+      if (outcome.sessionExpired) {
         bilan.sessionExpired = true;
         await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
         return bilan;
@@ -957,6 +990,8 @@
     let already = 0;
     let ignored = 0;
     let preserved = 0;
+    let shareRefused = 0;
+    let pdfFailed = 0;
     const lines = [];
     try {
       for (let i = 0; i < files.length; i += 1) {
@@ -970,6 +1005,11 @@
         if (bilan.ignored) {
           ignored += 1;
           lines.push(file.name + " : écarté. " + bilan.reason);
+        } else if (bilan.sharedMessage) {
+          if (bilan.sharedFailed) shareRefused += 1;
+          if (bilan.uploadFailed) pdfFailed += 1;
+          const local = bilan.added ? bilan.added + " question" + (bilan.added > 1 ? "s" : "") + " enregistrée" + (bilan.added > 1 ? "s" : "") + " sur cet appareil. " : "";
+          lines.push(file.name + " : " + local + bilan.sharedMessage);
         } else {
           const bits = [file.name + " : " + bilan.added + " ajoutée" + (bilan.added > 1 ? "s" : "")];
           if (bilan.reprocessed) bits.push("ancienne lecture remplacée");
@@ -980,6 +1020,7 @@
           if (bilan.preserved) bits.push(bilan.preserved + " correction" + (bilan.preserved > 1 ? "s" : "") + " manuelle" + (bilan.preserved > 1 ? "s" : "") + " conservée" + (bilan.preserved > 1 ? "s" : ""));
           if (bilan.duplicates) bits.push(bilan.duplicates + " doublon" + (bilan.duplicates > 1 ? "s" : "") + " évité" + (bilan.duplicates > 1 ? "s" : ""));
           if (bilan.sharedDuplicates) bits.push(bilan.sharedDuplicates + " doublon" + (bilan.sharedDuplicates > 1 ? "s" : "") + " déjà dans la base partagée");
+          if (remote.enabled() && !bilan.skippedFile) bits.push("partage confirmé");
           if (bilan.sessionExpired) return;
           lines.push(bits.join(", "));
         }
@@ -994,6 +1035,8 @@
       ];
       if (preserved) summary.push(preserved + " correction" + (preserved > 1 ? "s" : "") + " manuelle" + (preserved > 1 ? "s" : "") + " conservée" + (preserved > 1 ? "s" : ""));
       if (ignored) summary.push(ignored + " document" + (ignored > 1 ? "s" : "") + " écarté" + (ignored > 1 ? "s" : ""));
+      if (shareRefused) summary.push(shareRefused + " partage" + (shareRefused > 1 ? "s" : "") + " refusé" + (shareRefused > 1 ? "s" : ""));
+      if (pdfFailed) summary.push(pdfFailed + " PDF non envoyé" + (pdfFailed > 1 ? "s" : ""));
       if (anomalies) summary.push(anomalies + " anomalie" + (anomalies > 1 ? "s" : "") + " de lecture ou d’association");
       lines.unshift(summary.join(", ") + ".");
       report.innerHTML = "";
@@ -1065,10 +1108,12 @@
   }
 
   async function lockOut(message) {
+    try { await IPSemantic.persistSeal(); } catch (error) {}
+    IPSemantic.lockSeal();
+    IPSemantic.dropIndex();
     try { await remote.logout(); } catch (error) {}
     remote.forget();
     await repo.clearConfidential();
-    IPSemantic.dropIndex();
     state.questions = [];
     showLogin(message || "La session est terminée. Les questions de cet appareil ont été effacées.");
     if (els.list) els.list.innerHTML = "";
@@ -1121,6 +1166,7 @@
       return;
     }
     await repo.mergeShared(pulled.rows || []);
+    try { await IPSemantic.unlockSeal(code); } catch (error) {}
     showApp();
     watchSession();
     await refresh();
@@ -1163,6 +1209,7 @@
     if (remote.enabled()) {
       const restored = await remote.restore();
       if (!restored.sessionAlive) {
+        IPSemantic.lockSeal();
         if (restored.sessionExpired) await repo.clearConfidential();
         IPSemantic.dropIndex();
         showLogin(restored.sessionExpired ? "La session a expiré. Les questions de cet appareil ont été effacées." : "");
@@ -1180,7 +1227,11 @@
       showApp();
       try {
         const response = await fetch("data/fonds.json");
-        if (response.ok) await repo.installFondsIfEmpty(await response.json());
+        if (response.ok) {
+          const payload = await response.json();
+          await repo.installFondsIfEmpty(payload);
+          await repo.updateLocalFonds(payload);
+        }
         await repo.separateMergedPairs();
       } catch (error) {}
       try {

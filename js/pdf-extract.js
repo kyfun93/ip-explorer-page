@@ -54,9 +54,9 @@
       }
     }
     const columns = [];
-    verts.sort(function (a, b) { return a.x - b.x; }).forEach(function (seg) {
+    verts.sort(function (a, b) { return a.x - b.x || a.y0 - b.y0; }).forEach(function (seg) {
       const last = columns[columns.length - 1];
-      if (!last || seg.x - last.x > 2.5) columns.push({ x: seg.x, y0: seg.y0, y1: seg.y1, n: 1 });
+      if (!last || seg.x - last.x > 2.5 || seg.y0 > last.y1 + 24) columns.push({ x: seg.x, y0: seg.y0, y1: seg.y1, n: 1 });
       else {
         last.x = ((last.x * last.n) + seg.x) / (last.n + 1);
         last.y0 = Math.min(last.y0, seg.y0);
@@ -64,33 +64,58 @@
         last.n += 1;
       }
     });
+    function gridFrom(kept) {
+      if (kept.length < 3 || kept.length > 6) return null;
+      const top = Math.max.apply(null, kept.map(function (column) { return column.y1; }));
+      const bottoms = kept.map(function (column) { return column.y0; }).sort(function (a, b) { return a - b; });
+      const bottom = bottoms[Math.floor((bottoms.length - 1) / 2)];
+      const xs = kept.map(function (column) { return column.x; }).sort(function (a, b) { return a - b; });
+      const right = xs[xs.length - 1];
+      const origin = xs[Math.min(1, xs.length - 1)];
+      const bands = [];
+      hors.filter(function (line) { return line.y >= bottom - 4 && line.y <= top + 4; })
+        .sort(function (a, b) { return b.y - a.y; })
+        .forEach(function (line) {
+          const last = bands[bands.length - 1];
+          if (!last || Math.abs(last.y - line.y) > 2.2) bands.push({ y: line.y, x0: line.x0, x1: line.x1 });
+          else {
+            last.x0 = Math.min(last.x0, line.x0);
+            last.x1 = Math.max(last.x1, line.x1);
+          }
+        });
+      const ys = bands.filter(function (band) {
+        return band.x0 <= origin + 8 && band.x1 >= right - 30;
+      }).map(function (band) { return band.y; });
+      if (ys.length < 2) return null;
+      return { xs: xs, ys: ys };
+    }
     if (columns.length < 3) return null;
-    const top = Math.max.apply(null, columns.map(function (column) { return column.y1; }));
-    const kept = columns.filter(function (column) {
-      return column.y1 >= top - 18 && (column.y1 - column.y0) > 50;
-    });
-    if (kept.length < 3 || kept.length > 6) return null;
-    const bottoms = kept.map(function (column) { return column.y0; }).sort(function (a, b) { return a - b; });
-    const bottom = bottoms[Math.floor((bottoms.length - 1) / 2)];
-    const xs = kept.map(function (column) { return column.x; }).sort(function (a, b) { return a - b; });
-    const right = xs[xs.length - 1];
-    const origin = xs[Math.min(1, xs.length - 1)];
-    const bands = [];
-    hors.filter(function (line) { return line.y >= bottom - 4 && line.y <= top + 4; })
-      .sort(function (a, b) { return b.y - a.y; })
-      .forEach(function (line) {
-        const last = bands[bands.length - 1];
-        if (!last || Math.abs(last.y - line.y) > 2.2) bands.push({ y: line.y, x0: line.x0, x1: line.x1 });
-        else {
-          last.x0 = Math.min(last.x0, line.x0);
-          last.x1 = Math.max(last.x1, line.x1);
-        }
+    const pageTop = Math.max.apply(null, columns.map(function (column) { return column.y1; }));
+    const primary = gridFrom(columns.filter(function (column) {
+      return column.y1 >= pageTop - 18 && (column.y1 - column.y0) > 50;
+    }));
+    const groups = [];
+    columns.filter(function (column) { return (column.y1 - column.y0) > 28 && column.y1 < pageTop - 18; })
+      .sort(function (a, b) { return b.y1 - a.y1; })
+      .forEach(function (column) {
+        const group = groups.find(function (item) {
+          return Math.min(column.y1, item.top) - Math.max(column.y0, item.bottom) > 24;
+        });
+        if (group) {
+          group.columns.push(column);
+          group.top = Math.max(group.top, column.y1);
+          group.bottom = Math.min(group.bottom, column.y0);
+        } else groups.push({ columns: [column], top: column.y1, bottom: column.y0 });
       });
-    const ys = bands.filter(function (band) {
-      return band.x0 <= origin + 8 && band.x1 >= right - 30;
-    }).map(function (band) { return band.y; });
-    if (ys.length < 2) return null;
-    return { xs: xs, ys: ys };
+    const grids = [];
+    if (primary) grids.push(primary);
+    groups.forEach(function (group) {
+      const grid = gridFrom(group.columns.filter(function (column) {
+        return column.y1 >= group.top - 18 && (column.y1 - column.y0) > 28;
+      }));
+      if (grid) grids.push(grid);
+    });
+    return grids.length ? grids : null;
   }
 
   async function extractPages(buffer) {

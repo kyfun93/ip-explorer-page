@@ -52,15 +52,52 @@
     return "";
   }
 
-  function passageBody(record) {
+  const INDEX_MODEL = MODEL_KEY + "#p2";
+  const PASSAGE_WINDOW = 1500;
+  const PASSAGE_STRIDE = 1100;
+  let sealKey = null;
+  let sealEpoch = 0;
+
+  function fullBody(record) {
     const question = String(record.question || "").replace(/\s+/g, " ").trim();
     const answer = String(record.answer || "").replace(/\s+/g, " ").trim();
-    const body = answer ? question + ". " + answer : question;
-    return body.length > 1500 ? body.slice(0, 1500) : body;
+    return answer ? question + ". " + answer : question;
   }
 
-  function passageHash(record) {
-    return MODEL_KEY + "\n" + passageBody(record);
+  function passagesOf(record) {
+    const body = fullBody(record);
+    if (body.length <= PASSAGE_WINDOW) return body ? [body] : [];
+    const parts = [];
+    for (let start = 0; start < body.length; start += PASSAGE_STRIDE) {
+      parts.push(body.slice(start, start + PASSAGE_WINDOW));
+      if (start + PASSAGE_WINDOW >= body.length) break;
+    }
+    return parts;
+  }
+
+  function legacyHash(textValue) {
+    return MODEL_KEY + "\n" + textValue;
+  }
+
+  function fnvHex(value) {
+    let hash = 0x811c9dc5;
+    const textValue = String(value);
+    for (let i = 0; i < textValue.length; i += 1) {
+      hash ^= textValue.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  async function digest(value) {
+    const subtle = globalThis.crypto && crypto.subtle;
+    if (subtle && globalThis.TextEncoder) {
+      const bytes = await subtle.digest("SHA-256", new TextEncoder().encode(String(value)));
+      return Array.from(new Uint8Array(bytes)).map(function (byte) {
+        return byte.toString(16).padStart(2, "0");
+      }).join("");
+    }
+    return fnvHex(value);
   }
 
   function ensureWorker() {
@@ -109,22 +146,22 @@
     return run;
   }
 
-  function planBatches(records) {
-    const ordered = records.slice().sort(function (a, b) {
-      return passageBody(a).length - passageBody(b).length;
+  function planBatches(items) {
+    const ordered = items.slice().sort(function (a, b) {
+      return String(a.text || "").length - String(b.text || "").length;
     });
     const batches = [];
     let current = [];
     let base = 0;
-    ordered.forEach(function (record) {
-      const len = passageBody(record).length;
+    ordered.forEach(function (item) {
+      const len = String(item.text || "").length;
       const canJoin = current.length > 0 && len <= 280 && base <= 280 && len <= base * 1.15 && current.length < 4;
       if (current.length && !canJoin) {
         batches.push(current);
         current = [];
       }
       if (!current.length) base = len;
-      current.push(record);
+      current.push(item);
     });
     if (current.length) batches.push(current);
     return batches;
@@ -141,21 +178,56 @@
     return vector && vector.length === 384;
   }
 
-  async function saveBatch(batch, rows, token) {
+  function putChunk(recordId, index, vector) {
+    const list = vectors.get(recordId) || [];
+    list[index] = vector;
+    vectors.set(recordId, list);
+  }
+
+  function bestCosine(recordId, queryVector) {
+    const list = vectors.get(recordId) || [];
+    let best = null;
+    for (let i = 0; i < list.length; i += 1) {
+      if (!list[i]) continue;
+      const score = dot(queryVector, list[i]);
+      if (best === null || score > best) best = score;
+    }
+    return best;
+  }
+
+  async function saveBatch(batch, rows, token, missingCount) {
     if (token !== runToken) return false;
-    const saving = batch.map(function (record, index) {
+    const saving = [];
+    for (let index = 0; index < batch.length; index += 1) {
+      const job = batch[index];
       const vector = new Float32Array(rows[index] || []);
-      vectors.set(record.id, vector);
-      return { id: record.id, model: MODEL_KEY, hash: passageHash(record), vector: vector };
-    });
+      putChunk(job.record.id, job.chunk, vector);
+      saving.push({
+        id: job.record.id + "#" + job.chunk,
+        recordId: job.record.id,
+        chunk: job.chunk,
+        model: INDEX_MODEL,
+        hash: job.hash,
+        vector: vector
+      });
+    }
     const started = now();
     await repo.putEmbeddings(saving);
     runStats.saveMs = (runStats.saveMs || 0) + (now() - started);
-    if (token !== runToken) return false;
-    status.done += batch.length;
-    runStats.embedded += batch.length;
+    if (token !== runToken) {
+      try { await repo.deleteEmbeddings(saving.map(function (row) { return row.id; })); } catch (error) {}
+      return false;
+    }
+    batch.forEach(function (job) {
+      missingCount[job.record.id] -= 1;
+      runStats.embedded += 1;
+      if (missingCount[job.record.id] === 0) status.done += 1;
+    });
     status.phase = "index";
     emit(false);
+    if (runStats.embedded % 20 === 0) {
+      try { await persistSeal(); } catch (error) {}
+    }
     return true;
   }
 
@@ -177,34 +249,68 @@
     runStats.loadMs = now() - loadStarted;
     if (token !== runToken) return;
     vectors.clear();
+    const grouped = {};
+    stored.forEach(function (item) {
+      const recordId = item.recordId || item.id;
+      if (!grouped[recordId]) grouped[recordId] = [];
+      grouped[recordId].push(item);
+    });
+    const keep = {};
+    const needed = [];
+    const missingCount = {};
+    for (let r = 0; r < list.length; r += 1) {
+      const record = list[r];
+      const parts = passagesOf(record);
+      const hashes = [];
+      for (let i = 0; i < parts.length; i += 1) hashes.push(await digest(INDEX_MODEL + "\n" + parts[i]));
+      const have = new Array(parts.length);
+      (grouped[record.id] || []).forEach(function (item) {
+        if (!vectorOk(item.vector)) return;
+        if (item.model === INDEX_MODEL && item.hash === hashes[item.chunk]) have[item.chunk] = item;
+        if (item.model === MODEL_KEY && item.id === record.id && item.hash === legacyHash(parts[0])) have[0] = have[0] || item;
+      });
+      for (let i = 0; i < parts.length; i += 1) {
+        if (have[i]) {
+          putChunk(record.id, i, have[i].vector);
+          const id = record.id + "#" + i;
+          keep[id] = true;
+          if (have[i].id !== id) {
+            await repo.putEmbeddings([{
+              id: id,
+              recordId: record.id,
+              chunk: i,
+              model: INDEX_MODEL,
+              hash: hashes[i],
+              vector: have[i].vector
+            }]);
+          }
+        } else {
+          missingCount[record.id] = (missingCount[record.id] || 0) + 1;
+          needed.push({ record: record, chunk: i, text: parts[i], hash: hashes[i] });
+        }
+      }
+    }
     const stale = [];
     stored.forEach(function (item) {
-      const record = byId[item.id];
-      if (!record || item.model !== MODEL_KEY || item.hash !== passageHash(record) || !vectorOk(item.vector)) {
-        stale.push(item.id);
-        return;
-      }
-      vectors.set(item.id, item.vector);
+      const recordId = item.recordId || item.id;
+      if (byId[recordId] && !keep[item.id]) stale.push(item.id);
     });
-    if (stale.length) {
-      stale.forEach(function (id) { vectors.delete(id); });
-      await repo.deleteEmbeddings(stale);
-    }
+    if (stale.length) await repo.deleteEmbeddings(stale);
     if (token !== runToken) return;
-    const todo = list.filter(function (record) { return !vectors.has(record.id); });
-    runStats.reused = list.length - todo.length;
+    runStats.reused = list.length - Object.keys(missingCount).length;
     status.total = list.length;
     status.done = runStats.reused;
-    if (!todo.length) {
+    if (!needed.length) {
       status.phase = "ready";
       status.percent = null;
       status.note = "";
+      try { await persistSeal(); } catch (error) {}
       emit(true);
       return;
     }
     status.phase = "index";
     emit(false);
-    const batches = planBatches(todo);
+    const batches = planBatches(needed);
     let failed = 0;
     for (let i = 0; i < batches.length; i += 1) {
       if (token !== runToken) return;
@@ -212,7 +318,7 @@
       await pause(0);
       if (token !== runToken) return;
       const batch = batches[i];
-      const texts = batch.map(function (record) { return "passage: " + passageBody(record); });
+      const texts = batch.map(function (job) { return "passage: " + job.text; });
       const started = now();
       try {
         const rows = await embedTexts(texts);
@@ -220,7 +326,7 @@
         runStats.batches += 1;
         modelWarm = true;
         if (!rows || rows.length !== batch.length || !vectorOk(rows[0])) throw new Error("vecteur incomplet");
-        const saved = await saveBatch(batch, rows, token);
+        const saved = await saveBatch(batch, rows, token, missingCount);
         if (!saved) return;
       } catch (error) {
         if (token !== runToken) return;
@@ -231,15 +337,15 @@
         }
         for (let j = 0; j < batch.length; j += 1) {
           if (token !== runToken) return;
-          const record = batch[j];
+          const job = batch[j];
           try {
             const oneStarted = now();
-            const one = await embedTexts(["passage: " + passageBody(record)]);
+            const one = await embedTexts(["passage: " + job.text]);
             runStats.embedMs += now() - oneStarted;
             runStats.batches += 1;
             modelWarm = true;
             if (!one || !vectorOk(one[0])) throw new Error("vecteur incomplet");
-            const saved = await saveBatch([record], one, token);
+            const saved = await saveBatch([job], one, token, missingCount);
             if (!saved) return;
           } catch (again) {
             if (token !== runToken) return;
@@ -259,6 +365,7 @@
     status.phase = "ready";
     status.percent = null;
     status.note = "";
+    try { await persistSeal(); } catch (error) {}
     emit(true);
   }
 
@@ -322,9 +429,8 @@
       keywordHits.forEach(function (hit) { byId.set(hit.record.id, hit); });
       const extra = [];
       records.forEach(function (record) {
-        const stored = vectors.get(record.id);
-        if (!stored) return;
-        const cosine = dot(queryVector, stored);
+        const cosine = bestCosine(record.id, queryVector);
+        if (cosine === null) return;
         const hit = byId.get(record.id);
         if (hit) {
           hit.semantic = cosine;
@@ -357,10 +463,10 @@
     return embedQuery(query).then(function (queryVector) {
       const ranked = [];
       records.forEach(function (record) {
-        const stored = vectors.get(record.id);
-        if (!stored) return;
+        const cosine = bestCosine(record.id, queryVector);
+        if (cosine === null) return;
         ranked.push({
-          cosine: Math.round(dot(queryVector, stored) * 1000) / 1000,
+          cosine: Math.round(cosine * 1000) / 1000,
           service: record.serviceId || record.serviceMention || "",
           question: String(record.question || "").replace(/\s+/g, " ").slice(0, 110)
         });
@@ -387,6 +493,156 @@
     modelWarm = false;
   }
 
+  function lockSeal() {
+    sealEpoch += 1;
+    runToken += 1;
+    sealKey = null;
+    queuedRecords = null;
+    if (globalThis.localStorage) localStorage.removeItem("ip-seal-jwk");
+  }
+
+  function writeSealKey(epoch, serialized) {
+    if (epoch !== sealEpoch || !globalThis.localStorage) return false;
+    localStorage.setItem("ip-seal-jwk", serialized);
+    if (epoch !== sealEpoch) {
+      localStorage.removeItem("ip-seal-jwk");
+      sealKey = null;
+      return false;
+    }
+    return true;
+  }
+
+  function bytesToB64(bytes) {
+    let textValue = "";
+    for (let i = 0; i < bytes.length; i += 1) textValue += String.fromCharCode(bytes[i]);
+    return btoa(textValue);
+  }
+
+  function b64ToBytes(value) {
+    const textValue = atob(value);
+    const bytes = new Uint8Array(textValue.length);
+    for (let i = 0; i < textValue.length; i += 1) bytes[i] = textValue.charCodeAt(i);
+    return bytes;
+  }
+
+  async function rememberKey(key) {
+    const epoch = sealEpoch;
+    sealKey = key;
+    if (!globalThis.localStorage || !globalThis.crypto || !crypto.subtle) return;
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    if (!writeSealKey(epoch, JSON.stringify(jwk))) sealKey = null;
+  }
+
+  async function loadRememberedKey() {
+    const epoch = sealEpoch;
+    if (sealKey || !globalThis.localStorage || !globalThis.crypto || !crypto.subtle) return;
+    const raw = localStorage.getItem("ip-seal-jwk");
+    if (!raw || epoch !== sealEpoch) return;
+    try {
+      const imported = await crypto.subtle.importKey("jwk", JSON.parse(raw), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+      if (epoch !== sealEpoch) return;
+      sealKey = imported;
+    } catch (error) {
+      sealKey = null;
+    }
+  }
+
+  async function deriveKey(code, saltBytes) {
+    const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: saltBytes, iterations: 120000, hash: "SHA-256" },
+      material,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  async function persistSeal() {
+    const epoch = sealEpoch;
+    try {
+      await loadRememberedKey();
+      if (epoch !== sealEpoch || !sealKey || !repo || !repo.allEmbeddings || !globalThis.crypto || !crypto.subtle) return;
+      const rows = await repo.allEmbeddings();
+      const safe = rows.filter(function (row) { return row.model === INDEX_MODEL; }).map(function (row) {
+        return {
+          id: row.id,
+          recordId: row.recordId,
+          chunk: row.chunk,
+          model: row.model,
+          hash: row.hash,
+          vector: Array.from(row.vector || [])
+        };
+      });
+      if (!safe.length) return;
+      const existing = await repo.getSealed();
+      const salt = existing && existing.salt ? b64ToBytes(existing.salt) : crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, sealKey, new TextEncoder().encode(JSON.stringify(safe)));
+      if (epoch !== sealEpoch) return;
+      await repo.putSealed({
+        id: "current",
+        salt: bytesToB64(salt),
+        iv: bytesToB64(iv),
+        data: bytesToB64(new Uint8Array(cipher))
+      });
+    } catch (error) {}
+  }
+
+  async function unlockSeal(code) {
+    if (!repo || !code || !globalThis.crypto || !crypto.subtle) return { restored: 0 };
+    const epoch = sealEpoch;
+    const sealed = await repo.getSealed();
+    if (epoch !== sealEpoch) return { restored: 0, locked: true };
+    if (!sealed || !sealed.salt) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const key = await deriveKey(code, salt);
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      await rememberKey(key);
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      await repo.putSealed({ id: "current", salt: bytesToB64(salt), iv: "", data: "" });
+      return { restored: 0 };
+    }
+    try {
+      const key = await deriveKey(code, b64ToBytes(sealed.salt));
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      if (!sealed.data) {
+        await rememberKey(key);
+        return { restored: 0 };
+      }
+      const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(sealed.iv) }, key, b64ToBytes(sealed.data));
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      const rows = JSON.parse(new TextDecoder().decode(clear));
+      const saving = rows.map(function (row) {
+        return {
+          id: row.id,
+          recordId: row.recordId,
+          chunk: row.chunk,
+          model: row.model,
+          hash: row.hash,
+          vector: new Float32Array(row.vector || [])
+        };
+      });
+      if (saving.length) await repo.putEmbeddings(saving);
+      if (epoch !== sealEpoch) {
+        try { await repo.deleteEmbeddings(saving.map(function (row) { return row.id; })); } catch (error) {}
+        return { restored: 0, locked: true };
+      }
+      await rememberKey(key);
+      return { restored: saving.length };
+    } catch (error) {
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      await repo.deleteSealed();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const key = await deriveKey(code, salt);
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      await rememberKey(key);
+      if (epoch !== sealEpoch) return { restored: 0, locked: true };
+      await repo.putSealed({ id: "current", salt: bytesToB64(salt), iv: "", data: "" });
+      return { restored: 0, reset: true };
+    }
+  }
+
   root.IPSemantic = {
     attach: attach,
     dropIndex: dropIndex,
@@ -405,6 +661,13 @@
       };
     },
     setEmbedder: function (fn) { embedOverride = fn; },
+    passagesOf: passagesOf,
+    unlockSeal: unlockSeal,
+    lockSeal: lockSeal,
+    persistSeal: persistSeal,
+    phase: function () { return status.phase; },
+    sealEpoch: function () { return sealEpoch; },
+    writeSealKey: writeSealKey,
     isReady: function () { return status.phase === "ready"; },
     statusText: statusText,
     modelKey: MODEL_KEY

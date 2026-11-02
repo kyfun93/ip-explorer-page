@@ -37,7 +37,7 @@
     sorted.forEach(function (item) {
       const previous = glued[glued.length - 1];
       const gap = previous ? item.x - (previous.x + previous.w) : 99;
-      if (previous && gap < 1.15 && item.x - previous.x < 120) {
+      if (previous && gap < 1.15) {
         previous.text += item.text;
         previous.w = (item.x + (item.w || 0)) - previous.x;
         if (item.confidence != null) {
@@ -357,17 +357,25 @@
     return count;
   }
 
-  function textInsideRulings(page) {
+  function gridsOf(page) {
     const grid = page && page.rulings;
-    if (!grid || !grid.xs || !grid.ys || grid.ys.length < 2) return usefulTextLength(page);
-    const top = grid.ys[0];
-    const bottom = grid.ys[grid.ys.length - 1];
-    const left = grid.xs[0];
-    const right = grid.xs[grid.xs.length - 1];
+    if (!grid) return [];
+    return Array.isArray(grid) ? grid : [grid];
+  }
+
+  function textInsideRulings(page) {
+    const grids = gridsOf(page).filter(function (grid) { return grid.xs && grid.ys && grid.ys.length >= 2; });
+    if (!grids.length) return usefulTextLength(page);
     let count = 0;
     (page.items || []).forEach(function (item) {
-      if (item.x < left - 1 || item.x > right || item.y > top || item.y < bottom) return;
-      count += String(item.text || "").replace(/\s+/g, "").length;
+      const inside = grids.some(function (grid) {
+        const top = grid.ys[0];
+        const bottom = grid.ys[grid.ys.length - 1];
+        const left = grid.xs[0];
+        const right = grid.xs[grid.xs.length - 1];
+        return item.x >= left - 1 && item.x <= right && item.y <= top && item.y >= bottom;
+      });
+      if (inside) count += String(item.text || "").replace(/\s+/g, "").length;
     });
     return count;
   }
@@ -387,27 +395,59 @@
   }
 
   function cellText(words) {
-    const sorted = words.slice().sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+    const lines = [];
+    words.slice().sort(function (a, b) { return b.y - a.y || a.x - b.x; }).forEach(function (item) {
+      const current = lines[lines.length - 1];
+      if (current && Math.abs(current.y - item.y) <= 2.6) current.items.push(item);
+      else lines.push({ y: item.y, items: [item] });
+    });
+    const suffix = /^(er|ère|ere|ème|eme)$/i;
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (line.items.length !== 1 || !suffix.test(String(line.items[0].text || "").trim())) continue;
+      const mark = line.items[0];
+      const host = lines.find(function (other) {
+        if (other === line || mark.y - other.y <= 0 || mark.y - other.y > 6.5) return false;
+        const tail = other.items.slice().sort(function (a, b) { return a.x - b.x; }).pop();
+        return Math.abs(mark.x - (tail.x + (tail.w || 0))) < 10;
+      });
+      if (!host) continue;
+      host.items.push(mark);
+      lines.splice(i, 1);
+    }
     let output = "";
-    sorted.forEach(function (item) {
-      const piece = String(item.text || "").replace(/\s+/g, " ").trim();
+    lines.forEach(function (line) {
+      const parts = glueItems(line.items).map(function (item) {
+        return String(item.text || "").replace(/\u00ad/g, "").replace(/\s+/g, " ").trim();
+      }).filter(Boolean);
+      let piece = "";
+      parts.forEach(function (part) {
+        if (!piece) piece = part;
+        else if (/\d$/.test(piece) && suffix.test(part)) piece += part;
+        else piece += " " + part;
+      });
       if (!piece) return;
       if (!output) {
         output = piece;
         return;
       }
-      if (/[A-Za-zÀ-ÿ]-$/.test(output) && /^[A-Za-zÀ-ÿ]/.test(piece)) output += piece;
+      const brokenWord = output.match(/[A-Za-zÀ-ÿ]{4,}-$/) && /^[A-Za-zÀ-ÿ]{1,3}(?![A-Za-zÀ-ÿ])/.test(piece);
+      if (brokenWord) output = output.replace(/-$/, "") + piece;
+      else if (/[A-Za-zÀ-ÿ]-$/.test(output) && /^[A-Za-zÀ-ÿ]/.test(piece)) output += piece;
       else output += " " + piece;
     });
     return output.replace(/[ \t]+/g, " ").trim();
   }
 
   function rowsFromRulings(page) {
-    const grid = page && page.rulings;
-    if (!grid || !grid.xs || grid.xs.length < 3 || !grid.ys || grid.ys.length < 2) return [];
+    const grids = gridsOf(page).filter(function (grid) {
+      return grid.xs && grid.xs.length >= 3 && grid.ys && grid.ys.length >= 2;
+    }).sort(function (a, b) { return b.ys[0] - a.ys[0]; });
+    if (!grids.length) return [];
     const rows = [];
+    grids.forEach(function (grid) {
     for (let i = 0; i < grid.ys.length - 1; i += 1) {
-      const top = grid.ys[i];
+      const top = i === 0 && grid.ys[0] < (page.height || 842) - 120 ? grid.ys[i] + 18 : grid.ys[i];
       const bottom = grid.ys[i + 1];
       if (top - bottom < 8) continue;
       const cells = [];
@@ -421,6 +461,7 @@
       }
       if (cells.some(Boolean)) rows.push(cells);
     }
+    });
     return rows;
   }
 

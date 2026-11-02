@@ -1,6 +1,8 @@
 (function (root) {
   const text = root.IPText;
   const EXTRACTOR = "2026-10-31-cellules";
+  const FONDS_REVISION = "2026-11-02-ct17";
+  const CT_FRAGMENT = "les ip cgt demandent que ces modifications soient acceptees";
 
   function nowIso() {
     return new Date().toISOString();
@@ -417,6 +419,114 @@
       });
     }
 
+    function ficheKey(record) {
+      if (!record || !record.number) return "";
+      return [record.serviceId || "", record.meetingDate || "", String(record.number)].join("\u0001");
+    }
+
+    function cloneQuestions(records) {
+      return JSON.parse(JSON.stringify(records || []));
+    }
+
+    async function rejoinCtFebruary(storage) {
+      const all = await storage.allQuestions();
+      const hosts = all.filter(function (record) {
+        return record.serviceId === "ct" && record.meetingDate === "2022-02-11" && /^22-02-+17$/.test(String(record.number || "")) && !questionWasEdited(record);
+      });
+      if (hosts.length !== 1) return { repaired: 0 };
+      const host = hosts[0];
+      const fragments = all.filter(function (record) {
+        if (record.id === host.id || questionWasEdited(record) || record.number) return false;
+        if (record.serviceId !== "ct" || record.meetingDate !== "2022-02-11") return false;
+        const question = text.collapse(record.question);
+        if (question.length > 220) return false;
+        return text.normalize(question).indexOf(CT_FRAGMENT) === 0;
+      });
+      if (!fragments.length) return { repaired: 0 };
+      let changed = false;
+      fragments.forEach(function (fragment) {
+        const piece = text.collapse(fragment.question);
+        if (text.normalize(host.question).indexOf(text.normalize(piece)) === -1) {
+          host.question = text.collapse(host.question + " " + piece);
+          changed = true;
+        }
+        const extraAnswer = text.collapse(fragment.answer);
+        if (extraAnswer && text.normalize(host.answer).indexOf(text.normalize(extraAnswer)) === -1) {
+          host.answer = text.collapse((host.answer ? host.answer + " " : "") + extraAnswer);
+          changed = true;
+        }
+        const known = {};
+        (host.provenance || []).forEach(function (item) {
+          known[(item.fileName || "") + "\u0001" + (item.pages || []).join(",")] = true;
+        });
+        (fragment.provenance || []).forEach(function (item) {
+          const key = (item.fileName || "") + "\u0001" + (item.pages || []).join(",");
+          if (known[key]) return;
+          host.provenance = (host.provenance || []).concat([item]);
+          known[key] = true;
+          changed = true;
+        });
+        if (fragment.addedAt && (!host.addedAt || fragment.addedAt < host.addedAt)) {
+          host.addedAt = fragment.addedAt;
+          changed = true;
+        }
+      });
+      if (changed) {
+        host.updatedAt = nowIso();
+        host.fingerprint = text.fingerprint(host);
+        await storage.putQuestion(host);
+      }
+      for (let i = 0; i < fragments.length; i += 1) await storage.removeQuestion(fragments[i].id);
+      return { repaired: fragments.length };
+    }
+
+    async function updateLocalFonds(payload) {
+      return enqueue(async function () {
+        const current = await storage.getMeta("fonds");
+        if (current && current.revision === FONDS_REVISION) return { updated: false, reason: "current" };
+        const existing = await storage.allQuestions();
+        if (!existing.length) return { updated: false, reason: "empty" };
+        const backupId = "fonds-" + FONDS_REVISION;
+        await storage.putBackup({
+          id: backupId,
+          revision: FONDS_REVISION,
+          savedAt: nowIso(),
+          questions: cloneQuestions(existing)
+        });
+        const fingerprints = {};
+        const numbered = {};
+        existing.forEach(function (record) {
+          if (record.fingerprint) fingerprints[record.fingerprint] = true;
+          const key = ficheKey(record);
+          if (key) numbered[key] = true;
+        });
+        const incoming = (payload && payload.questions) || [];
+        let added = 0;
+        for (let i = 0; i < incoming.length; i += 1) {
+          const record = incoming[i];
+          if (!record) continue;
+          if (!record.fingerprint) record.fingerprint = text.fingerprint(record);
+          if (fingerprints[record.fingerprint]) continue;
+          const key = ficheKey(record);
+          if (key && numbered[key]) continue;
+          await storage.putQuestion(record);
+          fingerprints[record.fingerprint] = true;
+          if (key) numbered[key] = true;
+          added += 1;
+        }
+        const documents = (payload && payload.documents) || [];
+        for (let i = 0; i < documents.length; i += 1) {
+          const document = documents[i];
+          if (!document || !document.sha256) continue;
+          const found = await storage.findDocument(document.sha256);
+          if (!found) await storage.putDocument(document, null);
+        }
+        const repaired = await rejoinCtFebruary(storage);
+        await storage.putMeta({ id: "fonds", revision: FONDS_REVISION, updatedAt: nowIso() });
+        return { updated: true, added: added, repaired: repaired.repaired, backup: backupId };
+      });
+    }
+
     function copyProvenance(source) {
       return (source.provenance || []).map(function (item) {
         return {
@@ -525,6 +635,8 @@
       loadDemos: loadDemos,
       clearDemos: clearDemos,
       installFondsIfEmpty: installFondsIfEmpty,
+      updateLocalFonds: updateLocalFonds,
+      getBackup: function (id) { return storage.getBackup(id); },
       mergeShared: mergeShared,
       clearConfidential: function () { return storage.clearConfidential(); },
       attachFile: function (documentId, blob) { return storage.putFile(documentId, blob); },
@@ -536,7 +648,10 @@
       getFile: function (documentId) { return storage.getFile(documentId); },
       allEmbeddings: function () { return storage.allEmbeddings(); },
       putEmbeddings: function (rows) { return storage.putEmbeddings(rows); },
-      deleteEmbeddings: function (ids) { return storage.deleteEmbeddings(ids); }
+      deleteEmbeddings: function (ids) { return storage.deleteEmbeddings(ids); },
+      getSealed: function () { return storage.getSealed(); },
+      putSealed: function (record) { return storage.putSealed(record); },
+      deleteSealed: function () { return storage.deleteSealed(); }
     };
   }
 
@@ -545,6 +660,9 @@
     const documents = new Map();
     const files = new Map();
     const embeddings = new Map();
+    const meta = new Map();
+    const backups = new Map();
+    let sealed = null;
     return {
       async allQuestions() { return Array.from(questions.values()); },
       async getQuestion(id) { return questions.get(id) || null; },
@@ -593,25 +711,36 @@
       async deleteEmbeddings(ids) {
         ids.forEach(function (id) { embeddings.delete(id); });
       },
+      async getSealed() { return sealed; },
+      async putSealed(record) { sealed = record; },
+      async deleteSealed() { sealed = null; },
+      async getMeta(id) { return meta.get(id) || null; },
+      async putMeta(record) { meta.set(record.id, record); },
+      async getBackup(id) { return backups.get(id) || null; },
+      async putBackup(record) { backups.set(record.id, record); },
       async putFile(documentId, blob) { files.set(documentId, blob); },
       async clearConfidential() {
         questions.clear();
         documents.clear();
         files.clear();
         embeddings.clear();
+        backups.clear();
       }
     };
   }
 
   function createIndexedDbStorage() {
     const dbPromise = new Promise(function (resolve, reject) {
-      const request = indexedDB.open("ip-explorer", 2);
+      const request = indexedDB.open("ip-explorer", 4);
       request.onupgradeneeded = function () {
         const db = request.result;
         if (!db.objectStoreNames.contains("questions")) db.createObjectStore("questions", { keyPath: "id" });
         if (!db.objectStoreNames.contains("documents")) db.createObjectStore("documents", { keyPath: "id" });
         if (!db.objectStoreNames.contains("files")) db.createObjectStore("files");
         if (!db.objectStoreNames.contains("embeddings")) db.createObjectStore("embeddings", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("sealedIndex")) db.createObjectStore("sealedIndex", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("localBackup")) db.createObjectStore("localBackup", { keyPath: "id" });
       };
       request.onsuccess = function () { resolve(request.result); };
       request.onerror = function () { reject(request.error); };
@@ -717,15 +846,47 @@
           ids.forEach(function (id) { stores.embeddings.delete(id); });
         });
       },
+      async getSealed() {
+        return tx(["sealedIndex"], "readonly", function (stores) {
+          return requestToPromise(stores.sealedIndex.get("current"));
+        });
+      },
+      async putSealed(record) {
+        await tx(["sealedIndex"], "readwrite", function (stores) {
+          stores.sealedIndex.put(record);
+        });
+      },
+      async deleteSealed() {
+        await tx(["sealedIndex"], "readwrite", function (stores) {
+          stores.sealedIndex.delete("current");
+        });
+      },
+      async getMeta(id) {
+        return tx(["meta"], "readonly", function (stores) {
+          return requestToPromise(stores.meta.get(id));
+        });
+      },
+      async putMeta(record) {
+        await tx(["meta"], "readwrite", function (stores) { stores.meta.put(record); });
+      },
+      async getBackup(id) {
+        return tx(["localBackup"], "readonly", function (stores) {
+          return requestToPromise(stores.localBackup.get(id));
+        });
+      },
+      async putBackup(record) {
+        await tx(["localBackup"], "readwrite", function (stores) { stores.localBackup.put(record); });
+      },
       async putFile(documentId, blob) {
         await tx(["files"], "readwrite", function (stores) { stores.files.put(blob, documentId); });
       },
       async clearConfidential() {
-        await tx(["questions", "documents", "files", "embeddings"], "readwrite", function (stores) {
+        await tx(["questions", "documents", "files", "embeddings", "localBackup"], "readwrite", function (stores) {
           stores.questions.clear();
           stores.documents.clear();
           stores.files.clear();
           stores.embeddings.clear();
+          stores.localBackup.clear();
         });
       }
     };

@@ -175,9 +175,10 @@
         body: JSON.stringify({ p_session: sessionId, p_payload: payload })
       });
       if (result.sessionExpired) return { ok: false, sessionExpired: true, added: 0, duplicates: 0 };
-      const body = result.body || {};
+      const body = result.body && typeof result.body === "object" ? result.body : {};
+      const accepted = result.ok && (body.fileDuplicate === true || typeof body.added === "number");
       return {
-        ok: result.ok,
+        ok: accepted,
         sessionExpired: false,
         added: body.added || 0,
         duplicates: body.duplicates || 0,
@@ -270,11 +271,46 @@
     return repo.mergeShared(rows);
   }
 
+  function sharedImportOutcome(shared, uploaded) {
+    if (!shared || shared.sessionExpired) {
+      return { sessionExpired: true, ok: false, sharedFailed: false, uploadFailed: false, fileDuplicate: false, message: "" };
+    }
+    if (shared.ok !== true) {
+      return {
+        sessionExpired: false,
+        ok: false,
+        sharedFailed: true,
+        uploadFailed: false,
+        fileDuplicate: false,
+        message: "Les questions sont enregistrées sur cet appareil. Le partage a été refusé. Une nouvelle tentative ne crée pas de doublon."
+      };
+    }
+    if (!uploaded || uploaded.ok !== true) {
+      return {
+        sessionExpired: !!(uploaded && uploaded.sessionExpired),
+        ok: false,
+        sharedFailed: false,
+        uploadFailed: !(uploaded && uploaded.sessionExpired),
+        fileDuplicate: shared.fileDuplicate === true,
+        message: uploaded && uploaded.sessionExpired ? "" : "Les questions sont enregistrées. L’envoi du PDF n’a pas abouti. Vous pouvez réessayer : les questions déjà enregistrées ne seront pas dupliquées."
+      };
+    }
+    return {
+      sessionExpired: false,
+      ok: true,
+      sharedFailed: false,
+      uploadFailed: false,
+      fileDuplicate: shared.fileDuplicate === true,
+      message: ""
+    };
+  }
+
   root.IPRemote = {
     create: create,
     createOffline: createOffline,
     shouldLoadLocalFonds: shouldLoadLocalFonds,
     mergeByFingerprint: mergeByFingerprint,
+    sharedImportOutcome: sharedImportOutcome,
     storageKeys: storageKeys
   };
 })(globalThis);

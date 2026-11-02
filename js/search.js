@@ -419,6 +419,49 @@
     return fragment;
   }
 
+  function searchStatus(hitCount, phase, vague) {
+    if (vague) {
+      return {
+        pending: false,
+        empty: "Aucun résultat : les mots saisis sont trop généraux.",
+        hint: "Cette recherche est trop vague pour isoler une question. Ajoutez un mot plus précis.",
+        count: "Aucun résultat"
+      };
+    }
+    const waiting = phase === "download" || phase === "loading" || phase === "index" || phase === "pending";
+    if (waiting && !hitCount) {
+      return {
+        pending: true,
+        empty: "Recherche par le sens en cours.",
+        hint: "Les mots-clés n’ont rien isolé pour le moment. Le résultat par le sens arrive dès que le modèle est prêt.",
+        count: "Recherche en cours"
+      };
+    }
+    if (waiting && hitCount) {
+      return {
+        pending: true,
+        hint: "Les résultats par mots-clés sont affichés. La recherche par le sens se poursuit."
+      };
+    }
+    if (phase === "unavailable" && !hitCount) {
+      return {
+        pending: false,
+        empty: "Aucun résultat par mots-clés. La recherche par le sens n’est pas disponible sur cet appareil.",
+        hint: "La recherche par le sens n’est pas disponible sur cet appareil. Les mots-clés restent utilisables.",
+        count: "Aucun résultat"
+      };
+    }
+    if (!hitCount) {
+      return {
+        pending: false,
+        empty: "Aucun résultat pertinent.",
+        hint: "",
+        count: "Aucun résultat"
+      };
+    }
+    return { pending: false, hint: "", empty: "", count: "" };
+  }
+
   root.IPSearch = {
     searchQuestions: searchQuestions,
     listByMeeting: listByMeeting,
@@ -430,6 +473,7 @@
     contentTokens: contentTokens,
     meetingYear: meetingYear,
     highlightFragment: highlightFragment,
+    searchStatus: searchStatus,
     pageSize: PAGE_HINT
   };
 })(globalThis);
