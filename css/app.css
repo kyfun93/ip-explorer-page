@@ -91,7 +91,8 @@ h2 { margin: 0; font-size: 1.15rem; letter-spacing: 0.04em; text-transform: uppe
 h3 { margin: 1.1rem 0 0.4rem; font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 
 .brand { min-width: 0; flex: 1 1 auto; }
-.brand h1, .eyebrow { white-space: nowrap; }
+.brand h1 { white-space: nowrap; }
+.eyebrow { white-space: normal; }
 .eyebrow, .hint, .fine, .meta, .org { color: var(--text-muted); }
 .eyebrow { margin: 0.12rem 0 0; font-size: 0.8rem; }
 
