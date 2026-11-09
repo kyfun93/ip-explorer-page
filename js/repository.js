@@ -714,6 +714,22 @@
       });
     }
 
+    async function rememberSharedDocuments(rows) {
+      const incoming = rows || [];
+      for (let i = 0; i < incoming.length; i += 1) {
+        const row = incoming[i];
+        if (!row || !row.id || !row.sha256) continue;
+        const existing = await storage.getDocument(row.id);
+        await storage.putDocument({
+          id: row.id,
+          sha256: row.sha256,
+          fileName: row.fileName || (existing && existing.fileName) || "",
+          pageCount: row.pageCount || (existing && existing.pageCount) || 0,
+          importedAt: (existing && existing.importedAt) || ""
+        }, null);
+      }
+    }
+
     async function separateMergedPairs() {
       return enqueue(async function () {
         const all = await storage.allQuestions();
@@ -756,6 +772,8 @@
       updateLocalFonds: updateLocalFonds,
       getBackup: function (id) { return storage.getBackup(id); },
       mergeShared: mergeShared,
+      rememberSharedDocuments: rememberSharedDocuments,
+      getDocument: function (id) { return storage.getDocument(id); },
       clearConfidential: function () { return storage.clearConfidential(); },
       attachFile: function (documentId, blob) { return storage.putFile(documentId, blob); },
       classifyConfirmedMention: classifyConfirmedMention,
@@ -812,6 +830,7 @@
         }
         return null;
       },
+      async getDocument(id) { return documents.get(id) || null; },
       async deleteDocument(id) {
         documents.delete(id);
         files.delete(id);
@@ -930,6 +949,11 @@
           return requestToPromise(stores.documents.getAll());
         });
         return documents.find(function (document) { return document.sha256 === sha256; }) || null;
+      },
+      async getDocument(id) {
+        return tx(["documents"], "readonly", function (stores) {
+          return requestToPromise(stores.documents.get(id));
+        });
       },
       async deleteDocument(id) {
         await tx(["documents", "files"], "readwrite", function (stores) {

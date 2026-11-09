@@ -461,8 +461,13 @@
       return;
     }
     let file = await repo.getFile(source.documentId);
-    if (!file && remote.enabled() && source.sha256) {
-      const downloaded = await remote.downloadPdf(source.sha256);
+    let sha = source.sha256;
+    if (!sha && source.documentId) {
+      const known = await repo.getDocument(source.documentId);
+      sha = known && known.sha256;
+    }
+    if (!file && remote.enabled() && sha) {
+      const downloaded = await remote.downloadPdf(sha);
       if (downloaded.sessionExpired) {
         await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
         return;
@@ -492,6 +497,7 @@
       pages.appendChild(button);
     });
     await show(preferred);
+    box.hidden = !canvas.width;
   }
 
   function fillSubEntities(serviceId, selected) {
@@ -1160,6 +1166,12 @@
           return;
         }
         const merged = await repo.mergeShared(pulled.rows || []);
+        const documents = await remote.pullDocuments();
+        if (documents.sessionExpired) {
+          await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
+          return;
+        }
+        if (documents.ok) await repo.rememberSharedDocuments(documents.rows || []);
         if (merged.added || merged.updated) await refresh();
       } catch (error) {}
     }
@@ -1188,6 +1200,8 @@
       return;
     }
     await repo.mergeShared(pulled.rows || []);
+    const documents = await remote.pullDocuments();
+    if (!documents.sessionExpired && documents.ok) await repo.rememberSharedDocuments(documents.rows || []);
     try { await IPSemantic.unlockSeal(code); } catch (error) {}
     showApp();
     watchSession();
@@ -1243,6 +1257,12 @@
         return;
       }
       await repo.mergeShared(pulled.rows || []);
+      const documents = await remote.pullDocuments();
+      if (documents.sessionExpired) {
+        await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
+        return;
+      }
+      if (documents.ok) await repo.rememberSharedDocuments(documents.rows || []);
       showApp();
       watchSession();
     } else {

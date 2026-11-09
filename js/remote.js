@@ -147,6 +147,23 @@
       return { ok: result.ok, sessionExpired: false, rows: rows };
     }
 
+    async function pullDocuments() {
+      const result = await request("/rest/v1/ip_documents?select=id,sha256,file_name,page_count&limit=200", {
+        method: "GET",
+        headers: authHeaders()
+      });
+      if (result.sessionExpired) return { ok: false, sessionExpired: true, rows: [] };
+      const rows = Array.isArray(result.body) ? result.body.map(function (row) {
+        return {
+          id: row.id,
+          sha256: row.sha256,
+          fileName: row.file_name || "",
+          pageCount: row.page_count || 0
+        };
+      }) : [];
+      return { ok: result.ok, sessionExpired: false, rows: rows };
+    }
+
     async function saveQuestion(record) {
       const result = await request("/rest/v1/rpc/ip_save_question", {
         method: "POST",
@@ -231,6 +248,7 @@
       signIn: signIn,
       status: status,
       pullQuestions: pullQuestions,
+      pullDocuments: pullDocuments,
       saveQuestion: saveQuestion,
       deleteQuestion: deleteQuestion,
       pushImport: pushImport,
