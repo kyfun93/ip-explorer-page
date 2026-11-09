@@ -99,16 +99,24 @@ a.app-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   flex: 0 0 auto;
   text-decoration: none;
   white-space: nowrap;
-  border-radius: var(--radius);
-  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 229, 255, 0.55);
   background: transparent;
   color: var(--text-main);
   min-height: 44px;
-  padding: 0.45rem 0.7rem;
+  padding: 0.4rem 0.75rem;
   font-weight: 500;
+}
+
+a.app-link svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex: 0 0 auto;
 }
 
 .actions, .dialog-actions, .section-head {
@@ -260,30 +268,63 @@ main .import-panel { width: auto; margin: 0; }
 .views {
   display: flex;
   flex-wrap: nowrap;
-  gap: 0.4rem;
-  margin: 0 0 0.9rem;
+  gap: 0.5rem;
+  margin: 0.15rem 0 0.9rem;
 }
 
 .views button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
   flex: 1 1 0;
   min-width: 0;
-  min-height: 44px;
+  min-height: 72px;
+  padding: 0.5rem 0.2rem;
+  border: none;
+  border-radius: 14px;
+  background: #1c2233;
+  color: #f5f7fb;
+  box-shadow: none;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
-.views button.icon-tab {
-  flex: 0 0 44px;
-  width: 44px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.views button.icon-tab svg {
+.views button svg {
   width: 22px;
   height: 22px;
   display: block;
+  flex: 0 0 auto;
+}
+
+.views button.icon-tab {
+  width: auto;
+}
+
+.views button[aria-selected="true"] {
+  background: #1a7084;
+  border: none;
+  box-shadow: none;
+  color: #fff;
+}
+
+.views button:active,
+.views button[aria-selected="true"]:active {
+  background: #1a7084;
+  box-shadow: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .views button:hover,
+  a.app-link:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .views button:hover { background: #262c40; }
+  .views button[aria-selected="true"]:hover { background: #1a7084; }
 }
 
 button[aria-selected="true"] {
@@ -454,14 +495,13 @@ footer {
   .top-bar { flex-wrap: nowrap; align-items: center; gap: 0.6rem; }
   h1 { font-size: 1.05rem; }
   .eyebrow { font-size: 0.75rem; }
-  a.app-link { padding: 0.4rem 0.65rem; }
+  a.app-link { padding: 0.35rem 0.6rem; }
   main, #detail, footer, .banner, .bilan { width: min(920px, calc(100% - 1.2rem)); }
-  .views { margin-top: 0; }
+  .views { margin-top: 0.1rem; gap: 0.4rem; }
   .views button {
-    min-height: 44px;
-    padding: 0.4rem 0.35rem;
-    font-size: 0.82rem;
-    line-height: 1.15;
+    min-height: 68px;
+    padding: 0.4rem 0.15rem;
+    font-size: 0.68rem;
   }
   #filters-toggle {
     display: inline-flex;
