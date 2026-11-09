@@ -427,13 +427,6 @@ button.more { width: 100%; margin: 0.2rem 0 1rem; }
 .answer, #detail-question { white-space: pre-wrap; }
 .org { font-size: 0.82rem; margin: 0.2rem 0 0; }
 .fine { font-size: 0.9rem; }
-#pdf-canvas {
-  width: 100%;
-  height: auto;
-  background: #fff;
-  border: 1px solid rgba(0, 229, 255, 0.3);
-  border-radius: var(--radius);
-}
 
 dialog {
   width: min(640px, calc(100% - 1.5rem));
@@ -522,7 +515,6 @@ footer {
   dialog { width: min(640px, calc(100% - 1rem)); margin: auto; }
   dialog .dialog-actions, .dialog-actions { flex-direction: column; }
   .dialog-actions button, #detail > button:not(#back-button) { width: 100%; min-height: 44px; }
-  #pdf-canvas { max-width: 100%; }
   .login-screen { margin: 1rem auto; }
 }
 

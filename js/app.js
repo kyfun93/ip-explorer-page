@@ -435,80 +435,17 @@
     const caution = record.readingCaution;
     const cautionBox = document.getElementById("detail-reading");
     const cautionText = document.getElementById("detail-reading-text");
-    const cautionButton = document.getElementById("detail-reading-page");
     if (caution && caution.words && caution.words.length) {
-      const pages = caution.pages && caution.pages.length ? caution.pages : [];
       cautionBox.hidden = false;
       cautionText.textContent = "Lecture incertaine. Ces mots ont été lus avec une faible confiance : " + caution.words.join(", ") + ". Le texte affiché est celui qui a été lu, sans réécriture.";
-      cautionButton.hidden = !pages.length;
-      cautionButton.textContent = pages.length ? "Voir la page " + pages[0] : "Voir la page source";
-      cautionButton.onclick = function () {
-        const box = document.getElementById("pdf-box");
-        if (box) box.hidden = false;
-        const target = document.querySelector("#pdf-pages button[data-page=\"" + pages[0] + "\"]");
-        if (target) target.click();
-        if (box) box.scrollIntoView({ block: "start" });
-      };
     } else {
       cautionBox.hidden = true;
       cautionText.textContent = "";
-      cautionButton.onclick = null;
     }
     viewMemory[state.view] = { scrollY: state.scrollY, visibleCount: state.visibleCount };
-    await renderPdf(record);
     if (state.detailToken !== detailToken || state.page !== "detail") return;
     render();
     window.scrollTo(0, 0);
-  }
-
-  async function renderPdf(record) {
-    const box = document.getElementById("pdf-box");
-    const pages = document.getElementById("pdf-pages");
-    const canvas = document.getElementById("pdf-canvas");
-    pages.innerHTML = "";
-    const source = (record.provenance || [])[0];
-    if (!source) {
-      box.hidden = true;
-      return;
-    }
-    let file = await repo.getFile(source.documentId);
-    let sha = source.sha256;
-    if (!sha && source.documentId) {
-      const known = await repo.getDocument(source.documentId);
-      sha = known && known.sha256;
-    }
-    if (!file && remote.enabled() && sha) {
-      const downloaded = await remote.downloadPdf(sha);
-      if (downloaded.sessionExpired) {
-        await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
-        return;
-      }
-      if (downloaded.blob) {
-        file = downloaded.blob;
-        await repo.attachFile(source.documentId, file);
-      }
-    }
-    box.hidden = true;
-    if (!file) return;
-    const pageNumbers = source.pages && source.pages.length ? source.pages : [1];
-    const cautionPages = record.readingCaution && record.readingCaution.pages ? record.readingCaution.pages : [];
-    const preferred = cautionPages.filter(function (pageNumber) { return pageNumbers.indexOf(pageNumber) >= 0; })[0] || pageNumbers[0];
-    async function show(pageNumber) {
-      pages.querySelectorAll("button").forEach(function (button) {
-        button.setAttribute("aria-pressed", button.dataset.page === String(pageNumber) ? "true" : "false");
-      });
-      await IPPdf.renderPage(file, pageNumber, canvas);
-    }
-    pageNumbers.forEach(function (pageNumber) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.page = String(pageNumber);
-      button.textContent = "Page " + pageNumber;
-      button.addEventListener("click", function () { show(pageNumber); });
-      pages.appendChild(button);
-    });
-    await show(preferred);
-    box.hidden = !canvas.width;
   }
 
   function fillSubEntities(serviceId, selected) {
