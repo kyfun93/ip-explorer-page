@@ -90,8 +90,26 @@ h1 {
 h2 { margin: 0; font-size: 1.15rem; letter-spacing: 0.04em; text-transform: uppercase; }
 h3 { margin: 1.1rem 0 0.4rem; font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 
+.brand { min-width: 0; flex: 1 1 auto; }
+.brand h1, .eyebrow { white-space: nowrap; }
 .eyebrow, .hint, .fine, .meta, .org { color: var(--text-muted); }
-.eyebrow { margin: 0 0 0.15rem; font-size: 0.8rem; }
+.eyebrow { margin: 0.12rem 0 0; font-size: 0.8rem; }
+
+a.app-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  text-decoration: none;
+  white-space: nowrap;
+  border-radius: var(--radius);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  background: transparent;
+  color: var(--text-main);
+  min-height: 44px;
+  padding: 0.45rem 0.7rem;
+  font-weight: 500;
+}
 
 .actions, .dialog-actions, .section-head {
   display: flex;
@@ -117,7 +135,7 @@ button, .file input {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  button:hover {
+  button:hover, a.app-link:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-neon);
   }
@@ -217,14 +235,18 @@ input:focus, select:focus, textarea:focus {
 
 #home { display: flex; flex-direction: column; }
 .views { order: 1; }
-#search-form { order: 2; }
-#filters-toggle { order: 3; }
-#filter-panel { order: 4; }
-#search-hint { order: 5; }
-#semantic-status { order: 6; }
-#home > section { order: 7; }
+.import-panel { order: 2; }
+#search-form { order: 3; }
+#filters-toggle { order: 4; }
+#filter-panel { order: 5; }
+#search-hint { order: 6; }
+#semantic-status { order: 7; }
+#results { order: 8; }
 
-.menu-toggle, #filters-toggle { display: none; }
+#filters-toggle { display: none; }
+
+main .import-panel { width: auto; margin: 0; }
+.import-panel .bilan { width: auto; margin: 0.8rem 0 0; }
 
 .filters-mark {
   width: 0.55rem;
@@ -243,8 +265,25 @@ input:focus, select:focus, textarea:focus {
 }
 
 .views button {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 44px;
+  white-space: nowrap;
+}
+
+.views button.icon-tab {
+  flex: 0 0 44px;
+  width: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.views button.icon-tab svg {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 button[aria-selected="true"] {
@@ -413,38 +452,16 @@ footer {
     padding: max(0.55rem, env(safe-area-inset-top)) max(0.7rem, env(safe-area-inset-right)) 0.55rem max(0.7rem, env(safe-area-inset-left));
   }
   .top-bar { flex-wrap: nowrap; align-items: center; gap: 0.6rem; }
-  .top-bar > div:first-child { min-width: 0; flex: 1 1 auto; }
   h1 { font-size: 1.05rem; }
   .eyebrow { font-size: 0.75rem; }
-  .menu-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 44px; }
-  .actions {
-    display: none;
-    position: absolute;
-    right: max(0.7rem, env(safe-area-inset-right));
-    top: calc(100% + 0.35rem);
-    z-index: 30;
-    flex-direction: column;
-    align-items: stretch;
-    width: min(18rem, calc(100vw - 1.2rem));
-    padding: 0.45rem;
-    background: var(--bg-panel);
-    border: 1px solid rgba(0, 229, 255, 0.45);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-neon);
-  }
-  .actions.is-open { display: flex; }
-  .actions button { width: 100%; min-height: 44px; justify-content: flex-start; }
-  main, #detail, footer, .banner, .bilan, .import-panel { width: min(920px, calc(100% - 1.2rem)); }
-  #search-form { order: 1; }
-  .views { order: 2; margin-top: 0.15rem; }
+  a.app-link { padding: 0.4rem 0.65rem; }
+  main, #detail, footer, .banner, .bilan { width: min(920px, calc(100% - 1.2rem)); }
+  .views { margin-top: 0; }
   .views button {
-    flex: 1 1 0;
-    min-width: 0;
     min-height: 44px;
-    padding: 0.4rem 0.3rem;
+    padding: 0.4rem 0.35rem;
     font-size: 0.82rem;
     line-height: 1.15;
-    white-space: normal;
   }
   #filters-toggle {
     display: inline-flex;
@@ -491,11 +508,9 @@ body.is-detail #back-button {
   line-height: 1;
   background: #12141c;
 }
+body.is-detail .app-link { margin-right: 3.2rem; }
 @media (max-width: 900px) {
-  body.is-detail .menu-toggle { visibility: hidden; }
   body.is-detail #back-button { right: max(0.55rem, env(safe-area-inset-right)); }
-}
-@media (min-width: 901px) {
-  body.is-detail .actions { margin-right: 3.4rem; }
+  body.is-detail .app-link { margin-right: 3.5rem; }
 }
 #semantic-status { font-size: 0.85rem; }

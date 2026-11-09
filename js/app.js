@@ -19,7 +19,8 @@
   const viewMemory = {
     recherche: { scrollY: 0, visibleCount: IPSearch.pageSize },
     toutes: { scrollY: 0, visibleCount: IPSearch.pageSize },
-    nouveautes: { scrollY: 0, visibleCount: IPSearch.pageSize }
+    nouveautes: { scrollY: 0, visibleCount: IPSearch.pageSize },
+    import: { scrollY: 0, visibleCount: IPSearch.pageSize }
   };
   let restoreScroll = false;
   let queryTimer = 0;
@@ -47,7 +48,7 @@
   function readUrl() {
     const params = new URLSearchParams(location.search);
     const view = params.get("vue") || "recherche";
-    state.view = view === "toutes" || view === "nouveautes" ? view : "recherche";
+    state.view = view === "toutes" || view === "nouveautes" || view === "import" ? view : "recherche";
     state.meetingOrder = params.get("tri") === "ancien" ? "asc" : "desc";
     state.query = params.get("query") || "";
     const service = params.get("service") || "all";
@@ -96,6 +97,10 @@
 
   function setImportsOpen(open) {
     if (!els.importPanel) return;
+    if (state.view === "import") {
+      els.importPanel.hidden = state.page === "detail";
+      return;
+    }
     els.importPanel.hidden = !open;
     if (els.importsToggle) els.importsToggle.setAttribute("aria-expanded", open ? "true" : "false");
   }
@@ -181,7 +186,7 @@
   }
 
   function viewTitle() {
-    if (state.view === "toutes") return "Toutes les questions";
+    if (state.view === "toutes") return "Questions";
     if (state.view === "nouveautes") return "Nouveautés";
     return text.collapse(state.query) ? "Résultats" : "Recherche";
   }
@@ -342,7 +347,12 @@
     document.getElementById("tab-recherche").setAttribute("aria-selected", state.view === "recherche" ? "true" : "false");
     document.getElementById("tab-toutes").setAttribute("aria-selected", state.view === "toutes" ? "true" : "false");
     document.getElementById("tab-nouveautes").setAttribute("aria-selected", state.view === "nouveautes" ? "true" : "false");
+    document.getElementById("tab-import").setAttribute("aria-selected", state.view === "import" ? "true" : "false");
     els.searchForm.hidden = state.view !== "recherche";
+    document.getElementById("filters-toggle").hidden = state.view === "import";
+    document.getElementById("filter-panel").hidden = state.view === "import";
+    document.getElementById("results").hidden = state.view === "import";
+    if (state.view === "import") els.hint.textContent = "";
     els.period.hidden = state.view === "nouveautes";
     els.sortFilters.hidden = state.view !== "toutes";
     document.getElementById("sort-recent").setAttribute("aria-pressed", state.meetingOrder === "desc" ? "true" : "false");
@@ -363,7 +373,8 @@
     renderChrome();
     renderFilters();
     renderYears();
-    if (!showDetail) {
+    setImportsOpen(state.view === "import" && !showDetail);
+    if (!showDetail && state.view !== "import") {
       renderList();
       if (restoreScroll) {
         const y = state.scrollY || 0;
@@ -650,7 +661,7 @@
     render();
   });
   function showView(next) {
-    if (next !== "recherche" && next !== "toutes" && next !== "nouveautes") return;
+    if (next !== "recherche" && next !== "toutes" && next !== "nouveautes" && next !== "import") return;
     if (!closeSurfaces(null)) return;
     if (next === state.view && state.page === "list") return;
     viewMemory[state.view] = { scrollY: window.scrollY, visibleCount: state.visibleCount };
@@ -664,6 +675,7 @@
   document.getElementById("tab-recherche").addEventListener("click", function () { showView("recherche"); });
   document.getElementById("tab-toutes").addEventListener("click", function () { showView("toutes"); });
   document.getElementById("tab-nouveautes").addEventListener("click", function () { showView("nouveautes"); });
+  document.getElementById("tab-import").addEventListener("click", function () { showView("import"); });
   document.getElementById("sort-recent").addEventListener("click", function () {
     state.meetingOrder = "desc";
     state.visibleCount = IPSearch.pageSize;
@@ -725,12 +737,6 @@
       setImportsOpen(opening);
     });
   }
-  const menuToggle = document.getElementById("menu-toggle");
-  const actionMenu = document.getElementById("action-menu");
-  function setMenuOpen(open) {
-    actionMenu.classList.toggle("is-open", open);
-    menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
-  }
   function setFiltersOpen(open) {
     filterPanel.classList.toggle("is-open", open);
     filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
@@ -740,29 +746,15 @@
     for (let i = 0; i < dialogs.length; i += 1) {
       if (!closeDialog(dialogs[i], force)) return false;
     }
-    if (keep !== "menu") setMenuOpen(false);
     if (keep !== "filters") setFiltersOpen(false);
     if (keep !== "imports") setImportsOpen(false);
     return true;
   }
-  menuToggle.addEventListener("click", function (event) {
-    event.stopPropagation();
-    const opening = menuToggle.getAttribute("aria-expanded") !== "true";
-    if (opening && !closeSurfaces("menu")) return;
-    setMenuOpen(opening);
-  });
-  actionMenu.addEventListener("click", function (event) {
-    if (event.target.closest("button")) setMenuOpen(false);
-  });
-  document.addEventListener("click", function (event) {
-    if (!event.target.closest("#action-menu") && event.target !== menuToggle) setMenuOpen(false);
-  });
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
     if (els.editor.open || els.importer.open || document.getElementById("code-change").open) return;
-    if (!els.importPanel.hidden) { setImportsOpen(false); return; }
+    if (state.view !== "import" && !els.importPanel.hidden) { setImportsOpen(false); return; }
     if (filterPanel.classList.contains("is-open")) { setFiltersOpen(false); return; }
-    setMenuOpen(false);
   });
   const filtersToggle = document.getElementById("filters-toggle");
   const filterPanel = document.getElementById("filter-panel");
@@ -796,10 +788,6 @@
     });
   }
   document.addEventListener("focusin", keepFieldVisible);
-  document.getElementById("imports-close").addEventListener("click", function () {
-    setImportsOpen(false);
-  });
-
   document.getElementById("editor-form").addEventListener("submit", async function (event) {
     event.preventDefault();
     const input = formInput();

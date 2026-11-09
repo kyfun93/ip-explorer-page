@@ -12,53 +12,18 @@
     body.needs-login .import-panel,
     body.needs-login dialog { display: none !important; }
   </style>
-  <link rel="stylesheet" href="css/app.css?v=croix1">
+  <link rel="stylesheet" href="css/app.css?v=nav2">
 </head>
 <body class="needs-login">
   <header class="top">
     <div class="top-bar">
-      <div>
-        <p class="eyebrow">Questions des réunions IP</p>
+      <div class="brand">
         <h1>IP Explorer</h1>
+        <p class="eyebrow">Questions des réunions IP</p>
       </div>
-      <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="action-menu">Menu</button>
-      <div class="actions" id="action-menu">
-        <button type="button" id="add-button">Ajouter manuellement</button>
-        <button type="button" id="import-button" class="primary">Ajouter PDF</button>
-        <button type="button" id="logout-button" hidden>Déconnexion</button>
-      </div>
+      <a class="app-link" href="https://kyfun93.github.io/planning-his-cgt-giso/">Planning HIS</a>
     </div>
   </header>
-
-  <section id="import-panel" class="import-panel" hidden>
-    <div class="section-head">
-      <h2>Gestion des imports</h2>
-      <button type="button" id="imports-close" class="text-button">Fermer</button>
-    </div>
-    <p class="banner" id="fonds-status" hidden></p>
-    <p class="fine">Les questions restent dans ce navigateur. Les PDF ne sont pas publiés.</p>
-    <section id="fonds-bilan" class="bilan">
-      <h2>État du fonds</h2>
-      <div class="bilan-grid">
-        <section>
-          <h3>Importés</h3>
-          <ul id="bilan-imported"></ul>
-        </section>
-        <section>
-          <h3>Partiellement importés</h3>
-          <ul id="bilan-partial"></ul>
-        </section>
-        <section>
-          <h3>En échec</h3>
-          <ul id="bilan-failed"></ul>
-        </section>
-        <section>
-          <h3>Exclus</h3>
-          <ul id="bilan-excluded"></ul>
-        </section>
-      </div>
-    </section>
-  </section>
 
   <section id="login-screen" class="login-screen">
     <h2>Code d’accès</h2>
@@ -73,15 +38,51 @@
   </section>
 
   <main id="home">
+    <nav class="views" role="tablist" aria-label="Consultation">
+      <button type="button" id="tab-recherche" class="icon-tab" role="tab" aria-controls="home" aria-label="Recherche" title="Recherche">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M15.2 15.2 L20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>
+      </button>
+      <button type="button" id="tab-toutes" role="tab" aria-controls="home">Questions</button>
+      <button type="button" id="tab-nouveautes" role="tab" aria-controls="home">Nouveautés</button>
+      <button type="button" id="tab-import" role="tab" aria-controls="import-panel">Import</button>
+    </nav>
+    <section id="import-panel" class="import-panel" hidden>
+      <div class="section-head">
+        <h2>Import</h2>
+      </div>
+      <div class="actions">
+        <button type="button" id="import-button" class="primary">Ajouter PDF</button>
+        <button type="button" id="add-button">Ajouter manuellement</button>
+        <button type="button" id="logout-button" hidden>Déconnexion</button>
+      </div>
+      <p class="banner" id="fonds-status" hidden></p>
+      <p class="fine">Les questions restent dans ce navigateur. Les PDF ne sont pas publiés.</p>
+      <section id="fonds-bilan" class="bilan">
+        <h2>État du fonds</h2>
+        <div class="bilan-grid">
+          <section>
+            <h3>Importés</h3>
+            <ul id="bilan-imported"></ul>
+          </section>
+          <section>
+            <h3>Partiellement importés</h3>
+            <ul id="bilan-partial"></ul>
+          </section>
+          <section>
+            <h3>En échec</h3>
+            <ul id="bilan-failed"></ul>
+          </section>
+          <section>
+            <h3>Exclus</h3>
+            <ul id="bilan-excluded"></ul>
+          </section>
+        </div>
+      </section>
+    </section>
     <form id="search-form" role="search">
       <label for="query">Recherche</label>
       <input id="query" name="query" type="search" enterkeyhint="search" placeholder="Un mot, ou une question" autocomplete="off">
     </form>
-    <nav class="views" role="tablist" aria-label="Consultation">
-      <button type="button" id="tab-recherche" role="tab" aria-controls="home">Recherche</button>
-      <button type="button" id="tab-toutes" role="tab" aria-controls="home">Toutes les questions</button>
-      <button type="button" id="tab-nouveautes" role="tab" aria-controls="home">Nouveautés</button>
-    </nav>
     <button type="button" id="filters-toggle" aria-expanded="false" aria-controls="filter-panel">Filtres<span id="filters-mark" class="filters-mark" hidden></span></button>
     <div id="filter-panel">
       <div id="service-filters" class="chips" role="group" aria-label="Service"></div>
@@ -101,7 +102,7 @@
     </div>
     <p class="hint" id="search-hint"></p>
     <p class="hint" id="semantic-status" hidden></p>
-    <section>
+    <section id="results">
       <div class="section-head">
         <h2 id="list-title">Recherche</h2>
         <p id="list-count"></p>
@@ -231,6 +232,6 @@
   <script src="js/ocr.js?v=tel1"></script>
   <script src="js/demo.js?v=fonds"></script>
   <script src="js/semantic.js?v=sens4"></script>
-  <script src="js/app.js?v=pdf1"></script>
+  <script src="js/app.js?v=nav1"></script>
 </body>
 </html>
