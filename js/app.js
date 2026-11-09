@@ -868,7 +868,27 @@
     if (liveReport) liveReport.textContent = progressLabel;
     const deadline = Date.now() + (IPOcr.fileDeadlineMs || 240000);
     pages = await IPOcr.completePages(buffer.slice(0), pages, deadline);
-    const parsed = IPParse.parseMeeting(pages);
+    const bundle = IPParse.parseMeetings(pages);
+    const usable = bundle.meetings.filter(function (meeting) { return meeting.pairs && meeting.pairs.length && !meeting.incomplete; });
+    const parsed = usable.length === 1 ? usable[0] : {
+      meetingDate: null,
+      signedDate: null,
+      serviceId: usable.length ? usable[0].serviceId : null,
+      serviceMention: usable.length ? usable[0].serviceMention : null,
+      incomplete: usable.length === 0 && bundle.meetings.some(function (meeting) { return meeting.incomplete; }),
+      pairs: usable.reduce(function (all, meeting) { return all.concat(meeting.pairs); }, []),
+      anomalies: usable.reduce(function (all, meeting) { return all.concat(meeting.anomalies || []); }, []),
+      notes: usable.reduce(function (all, meeting) { return all.concat(meeting.notes || []); }, [])
+    };
+    if (usable.length > 1) {
+      parsed.notes.unshift("Ce PDF contient " + usable.length + " séances. Chaque question garde la date écrite sur son compte rendu.");
+    }
+    if (bundle.dropped.length) {
+      parsed.notes.push("Une copie en double de la même séance a été laissée de côté.");
+    }
+    parsed.sessions = usable.map(function (meeting) {
+      return { meetingDate: meeting.meetingDate, count: meeting.pairs.length, pages: meeting.pages };
+    });
     if (options && options.keepIfFewer && parsed.pairs.length <= options.keepIfFewer) {
       return {
         fileName: name,
@@ -915,6 +935,7 @@
     }
     const bilan = await repo.reimportParsed(name, sha, pages.length, parsed, new Blob([buffer], { type: "application/pdf" }), forced || null, Boolean(options && options.force));
     bilan.ignored = false;
+    bilan.sessions = parsed.sessions || [];
     if (remote.enabled()) {
       const shared = await remote.pushImport({
         sha256: sha,
@@ -926,10 +947,10 @@
             answer: pair.answer || "",
             number: pair.number || null,
             organization: pair.organization || null,
-            serviceId: forced || parsed.serviceId || null,
-            serviceMention: forced ? null : parsed.serviceMention || null,
-            meetingDate: parsed.meetingDate || null,
-            signedDate: parsed.signedDate || null,
+            serviceId: forced || pair.serviceId || parsed.serviceId || null,
+            serviceMention: forced ? null : (pair.serviceMention || parsed.serviceMention || null),
+            meetingDate: pair.meetingDate || parsed.meetingDate || null,
+            signedDate: pair.signedDate || parsed.signedDate || null,
             addedAt: new Date().toISOString(),
             provenance: [{ fileName: name, sha256: sha, pages: pair.pages || [] }]
           };
@@ -1012,6 +1033,7 @@
           lines.push(file.name + " : " + local + bilan.sharedMessage);
         } else {
           const bits = [file.name + " : " + bilan.added + " ajoutée" + (bilan.added > 1 ? "s" : "")];
+          if (bilan.sessions && bilan.sessions.length > 1) bits.push(bilan.sessions.length + " séances distinctes");
           if (bilan.reprocessed) bits.push("ancienne lecture remplacée");
           if (bilan.skippedFile) {
             bits[0] = file.name + " : déjà importé avec la lecture actuelle";

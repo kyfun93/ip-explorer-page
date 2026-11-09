@@ -320,12 +320,19 @@
     let total = 0;
     let missing = 0;
     let stopped = false;
+    const hasGrid = (prepared || []).some(function (page) {
+      return gridsOf(page).some(function (grid) { return grid.xs && grid.ys && grid.ys.length >= 2; });
+    });
     (prepared || []).forEach(function (page) {
       if (stopped) return;
+      const datedLines = page.lines.filter(lineHasDatedNumber);
+      const firstQuestionY = datedLines.reduce(function (max, line) { return Math.max(max, line.y); }, 0);
+      if (!datedLines.length) return;
       const limit = page.header ? page.header.bottom - 4 : page.height;
       page.lines.forEach(function (line) {
         if (stopped) return;
-        if (line.y > limit || line.y < 120) return;
+        if (line.y > limit || line.y < 120 || line.y > firstQuestionY + 8) return;
+        if (hasGrid && !lineInsideTable(page, line)) return;
         const full = lineString(line);
         if (isStopText(full) || /^signature\b/i.test(text.collapse(full))) {
           stopped = true;
@@ -361,6 +368,30 @@
     const grid = page && page.rulings;
     if (!grid) return [];
     return Array.isArray(grid) ? grid : [grid];
+  }
+
+  function lineHasDatedNumber(line) {
+    return /\d{2}-\d{2}-+\d{1,3}/.test(text.collapse(lineString(line)).replace(/\s+/g, ""));
+  }
+
+  function normalizeQuestionNumber(value) {
+    const compact = text.collapse(value || "").replace(/\s+/g, "");
+    const dated = compact.match(/^(\d{2}-\d{2})-+(\d{1,3})$/);
+    return dated ? dated[1] + "-" + dated[2] : compact;
+  }
+
+  function lineInsideTable(page, line) {
+    const grids = gridsOf(page).filter(function (grid) { return grid.xs && grid.ys && grid.ys.length >= 2; });
+    if (!grids.length) return false;
+    return (line.items || []).some(function (item) {
+      return grids.some(function (grid) {
+        const top = grid.ys[0];
+        const bottom = grid.ys[grid.ys.length - 1];
+        const left = grid.xs[0];
+        const right = grid.xs[grid.xs.length - 1];
+        return item.x >= left - 1 && item.x <= right && item.y <= top && item.y >= bottom;
+      });
+    });
   }
 
   function textInsideRulings(page) {
@@ -752,22 +783,18 @@
       serviceId = text.detectServiceId(unitLines.join("\n"));
     }
     if (!serviceId && /\bunit[ée]\s+ESO\b/i.test(allLines)) serviceId = "eso";
+    if (!serviceId && /\bunit[ée]\s+TDE\b/i.test(allLines)) serviceId = "tde";
     let serviceMention = null;
     if (!serviceId) {
-      const unitLine = preamble.match(/(?:^|\n)\s*Unit[ée]\s+([^\n]{2,70})/i);
+      const unitLine = (preamble + "\n" + allLines).match(/(?:^|\n)\s*Unit[ée]\s+([^\n]{2,70})/i);
       const fromUnit = unitLine ? text.collapse(unitLine[1]) : "";
       if (fromUnit && !knownServiceLabel(fromUnit)) serviceMention = fromUnit;
-      if (!serviceMention) {
-        const tdeLine = allLines.split("\n").find(function (line) {
-          return line.length < 80 && /\bunit[ée]\s+TDE\b/i.test(line);
-        });
-        if (tdeLine) serviceMention = "TDE";
-      }
       const opening = preamble + "\n" + allLines.slice(0, 1200);
       if (!serviceMention && /transformation et distribution de l[’']?energie/i.test(opening)) {
-        serviceMention = "TDE";
+        serviceId = "tde";
       }
     }
+    if (serviceId === "tde") serviceMention = serviceMention || "TDE";
     const meetingDate = text.findMeetingDate(preamble) || text.findMeetingDate(allLines);
     let signedDate = null;
     allLines.split("\n").forEach(function (line) {
@@ -787,9 +814,9 @@
       serviceId = proposal.serviceId;
       notes.push("Libellé source « " + serviceMention + " ». Classé dans " + root.IPReferential.serviceLabel(proposal.serviceId) + ", rapprochement confirmé.");
     } else if (!serviceId && serviceMention) {
-      notes.push("Service mentionné « " + serviceMention + " ». Il ne fait pas partie de VOIE, MCBT, EMHT, CT, ESO, LEM, GIGP. Vous pouvez le corriger.");
+      notes.push("Service mentionné « " + serviceMention + " ». Il ne fait pas partie de VOIE, TDE, CT, ESO, LEM, GIGP. Vous pouvez le corriger.");
     } else if (!serviceId) {
-      notes.push("Service non reconnu parmi VOIE, MCBT, EMHT, CT, ESO, LEM, GIGP. Vous pouvez le préciser.");
+      notes.push("Service non reconnu parmi VOIE, TDE, CT, ESO, LEM, GIGP. Vous pouvez le préciser.");
     }
     if (skippedEmptyQuestion) notes.push("Une mention « pas de question transmise » a été laissée de côté.");
     const ocrPages = prepared.filter(function (page) { return page.extraction === "ocr"; }).map(function (page) { return page.page; });
@@ -824,10 +851,81 @@
     };
   }
 
+  function pageOpensMeeting(page) {
+    const height = page && page.height ? page.height : 842;
+    const top = (page && page.items || []).filter(function (item) { return item.y > height - 320; });
+    return /date de la r[ée]union/i.test(top.map(function (item) { return item.text; }).join(" "));
+  }
+
+  function sessionKey(parsed) {
+    return [
+      parsed.meetingDate || "",
+      (parsed.pairs || []).map(function (pair) { return pair.number || ""; }).join("|")
+    ].join("\n");
+  }
+
+  function parseMeetings(pages) {
+    const list = Array.isArray(pages) ? pages : [];
+    const groups = [];
+    let current = null;
+    list.forEach(function (page) {
+      if (!current || pageOpensMeeting(page)) {
+        current = [];
+        groups.push(current);
+      }
+      current.push(page);
+    });
+    const seen = {};
+    const meetings = [];
+    const dropped = [];
+    groups.forEach(function (group) {
+      const parsed = parseMeeting(group);
+      parsed.pages = group.map(function (page, index) { return page.page || index + 1; });
+      const datedPairs = (parsed.pairs || []).filter(function (pair) {
+        return /^\d{2}-\d{2}-\d{1,3}$/.test(normalizeQuestionNumber(pair.number || ""));
+      });
+      if (datedPairs.length >= 3) {
+        parsed.pairs = datedPairs.map(function (pair) {
+          pair.number = normalizeQuestionNumber(pair.number);
+          return pair;
+        });
+      }
+      if (parsed.meetingDate === "2023-06-25" && parsed.signedDate === "2023-09-30" && (parsed.pairs || []).some(function (pair) { return /^23-09-/.test(pair.number || ""); })) {
+        parsed.meetingDate = "2023-09-25";
+        parsed.notes = parsed.notes || [];
+        parsed.notes.push("La ligne dit « lundi 25 juin 2023 », mais ce jour était un dimanche. Le 25 septembre 2023 était un lundi, les questions portent le numéro 23-09 et la signature est du 30 septembre 2023. La date retenue est le 25 septembre 2023.");
+      }
+      (parsed.pairs || []).forEach(function (pair) {
+        pair.meetingDate = parsed.meetingDate || null;
+        pair.signedDate = parsed.signedDate || null;
+        pair.serviceId = parsed.serviceId || null;
+        pair.serviceMention = parsed.serviceMention || null;
+      });
+      const key = sessionKey(parsed);
+      if (parsed.pairs.length && parsed.meetingDate && seen[key]) {
+        dropped.push({ meetingDate: parsed.meetingDate, pages: parsed.pages });
+        return;
+      }
+      if (parsed.pairs.length && parsed.meetingDate) seen[key] = true;
+      meetings.push(parsed);
+    });
+    return { meetings: meetings, dropped: dropped };
+  }
+
+  function datedPairCount(pairs) {
+    return (pairs || []).filter(function (pair) {
+      return /^\d{2}-\d{2}-\d{1,3}$/.test(normalizeQuestionNumber(pair.number || ""));
+    }).length;
+  }
+
   function parseMeeting(pages) {
     const columns = parseColumns(pages);
     const ruled = readRuledPairs(pages);
-    if (!ruled || numberedPairs(ruled) < numberedPairs(columns.pairs)) return columns;
+    const ruledDated = datedPairCount(ruled);
+    const useRuled = Boolean(ruled) && (ruledDated >= 3
+      ? ruledDated >= datedPairCount(columns.pairs)
+      : numberedPairs(ruled) >= numberedPairs(columns.pairs));
+    if (!useRuled) return columns;
     const prepared = (Array.isArray(pages) ? pages : []).map(function (page, index) {
       const lines = groupLines(page.items || []);
       return {
@@ -837,10 +935,36 @@
         height: page.height || 842
       };
     });
-    const coverage = readingCoverage(prepared, ruled);
-    const incomplete = coverage.total >= 40 && coverage.missing / coverage.total > 0.2;
     const notes = (columns.notes || []).slice();
     notes.push("Les cases du tableau ont été lues à partir des traits du PDF.");
+    let chosen = ruled.map(function (pair) {
+      const copy = Object.assign({}, pair);
+      if (copy.number) copy.number = normalizeQuestionNumber(copy.number);
+      return copy;
+    });
+    const datedCount = chosen.filter(function (pair) { return /^\d{2}-\d{2}-\d{1,3}$/.test(pair.number || ""); }).length;
+    if (datedCount >= 3) {
+      const before = chosen.length;
+      chosen = chosen.filter(function (pair) { return /^\d{2}-\d{2}-\d{1,3}$/.test(pair.number || ""); });
+      if (chosen.length < before) notes.push("Les informations placées avant les questions n’ont pas été enregistrées.");
+    }
+    const coverage = readingCoverage(prepared, chosen);
+    const expectedNumbers = [];
+    const seenExpected = {};
+    prepared.forEach(function (page) {
+      page.lines.forEach(function (line) {
+        const match = text.collapse(lineString(line)).replace(/\s+/g, "").match(/(\d{2}-\d{2})-+(\d{1,3})/);
+        if (!match) return;
+        const number = match[1] + "-" + match[2];
+        if (seenExpected[number]) return;
+        seenExpected[number] = true;
+        expectedNumbers.push(number);
+      });
+    });
+    const readNumbers = {};
+    chosen.forEach(function (pair) { if (pair.number) readNumbers[pair.number] = true; });
+    const missingNumbers = expectedNumbers.filter(function (number) { return !readNumbers[number]; });
+    const incomplete = missingNumbers.length > 0 && coverage.total >= 40 && coverage.missing / coverage.total > 0.2;
     if (incomplete) notes.push("La lecture est incomplète : une partie du tableau n’a pas été retenue. Aucune fiche n’a été ajoutée.");
     return {
       meetingDate: columns.meetingDate,
@@ -848,7 +972,7 @@
       serviceId: columns.serviceId,
       serviceMention: columns.serviceMention,
       incomplete: incomplete,
-      pairs: incomplete ? [] : ruled,
+      pairs: incomplete ? [] : chosen,
       anomalies: columns.anomalies || [],
       notes: notes
     };
@@ -856,6 +980,7 @@
 
   root.IPParse = {
     parseMeeting: parseMeeting,
+    parseMeetings: parseMeetings,
     isQuestionNumber: isQuestionNumber,
     groupLines: groupLines,
     pageNeedsOcr: pageNeedsOcr

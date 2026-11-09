@@ -1,7 +1,7 @@
 (function (root) {
   const text = root.IPText;
   const EXTRACTOR = "2026-10-31-cellules";
-  const FONDS_REVISION = "2026-11-02-ct17";
+  const FONDS_REVISION = "2026-11-09-tde";
   const CT_FRAGMENT = "les ip cgt demandent que ces modifications soient acceptees";
 
   function nowIso() {
@@ -16,12 +16,12 @@
       answer: pair.answer || "",
       number: pair.number || null,
       organization: pair.organization || null,
-      serviceId: forcedServiceId || meeting.serviceId || null,
-      serviceMention: meeting.serviceMention || null,
+      serviceId: forcedServiceId || pair.serviceId || meeting.serviceId || null,
+      serviceMention: forcedServiceId ? null : (pair.serviceMention || meeting.serviceMention || null),
       subEntityId: null,
       place: null,
-      meetingDate: meeting.meetingDate || null,
-      signedDate: meeting.signedDate || null,
+      meetingDate: pair.meetingDate || meeting.meetingDate || null,
+      signedDate: pair.signedDate || meeting.signedDate || null,
       addedAt: nowIso(),
       updatedAt: nowIso(),
       provenance: [{
@@ -480,6 +480,123 @@
       return { repaired: fragments.length };
     }
 
+    function sourceFile(record) {
+      const item = (record.provenance || [])[0] || {};
+      return String(item.fileName || "").normalize("NFC");
+    }
+
+    function normalizedNumber(value) {
+      const match = String(value || "").match(/^(\d{2}-\d{2})-+(\d{1,3})$/);
+      if (!match) return value || null;
+      return match[1] + "-" + match[2];
+    }
+
+    function assignTdeService(record) {
+      if (!record || questionWasEdited(record)) return false;
+      const mention = text.normalize(record.serviceMention || "");
+      const fromTde = mention === "tde" || record.serviceId === "mcbt" || record.serviceId === "emht" || record.serviceId === "tde";
+      if (!fromTde) return false;
+      let changed = false;
+      if (record.serviceId !== "tde") {
+        record.serviceId = "tde";
+        changed = true;
+      }
+      if (!record.serviceMention) {
+        record.serviceMention = "TDE";
+        changed = true;
+      }
+      return changed;
+    }
+
+    async function applyKnownRepairs(storage, incoming) {
+      const rejoined = await rejoinCtFebruary(storage);
+      const all = await storage.allQuestions();
+      const byQuestion = {};
+      (incoming || []).forEach(function (record) {
+        if (!record || questionWasEdited(record)) return;
+        const key = sourceFile(record) + "\u0001" + text.normalize(record.question);
+        if (!byQuestion[key]) byQuestion[key] = record;
+      });
+      const esoFiles = {
+        "CR IP février 2023[39].pdf": true,
+        "CR IP juin 2023.pdf": true,
+        "CR IP juillet 23.pdf": true
+      };
+      const meetingDates = {
+        "20260706 Q et R Seance IP.pdf": "2026-07-06",
+        "20260904 Q et R Seance IP.pdf": "2026-09-04",
+        "CR séance IP 10 octobre 2025.pdf": "2025-10-10"
+      };
+      let adjusted = 0;
+      for (let i = 0; i < all.length; i += 1) {
+        const record = all[i];
+        if (questionWasEdited(record)) continue;
+        const fileName = sourceFile(record);
+        let changed = assignTdeService(record);
+        const number = normalizedNumber(record.number);
+        if (number !== record.number) {
+          record.number = number;
+          changed = true;
+        }
+        if (!record.serviceId && esoFiles[fileName]) {
+          record.serviceId = "eso";
+          changed = true;
+        }
+        if (!record.meetingDate && meetingDates[fileName]) {
+          record.meetingDate = meetingDates[fileName];
+          changed = true;
+        }
+        if (fileName === "CR IP 0422.pdf" && String(record.number) === "30") {
+          const question = text.collapse(record.question);
+          const splitAt = question.indexOf("Combien", question.indexOf("Combien") + 1);
+          const answer = text.collapse(record.answer);
+          const answerAt = answer.indexOf("convention RDS");
+          if (splitAt > 0 && answerAt > 0) {
+            record.question = question.slice(0, splitAt).trim();
+            record.answer = answer.slice(0, answerAt).trim();
+            changed = true;
+          }
+        }
+        if (fileName === "CR IP 0924.pdf" && String(record.number) === "178") {
+          const question = text.collapse(record.question);
+          if (text.normalize(question).indexOf("lsrh") === -1 && /échelon$/.test(question)) {
+            record.question = question + " 26 sur LSRH.";
+            changed = true;
+          }
+        }
+        if (fileName === "2026-02 Réponses aux questions IP.pdf") {
+          const source = byQuestion[fileName + "\u0001" + text.normalize(record.question)];
+          if (source && source.number && source.number !== record.number) {
+            record.number = source.number;
+            changed = true;
+          }
+        }
+        if (!changed) continue;
+        record.updatedAt = nowIso();
+        record.fingerprint = text.fingerprint(record);
+        await storage.putQuestion(record);
+        adjusted += 1;
+      }
+      const fresh = await storage.allQuestions();
+      for (let i = 0; i < fresh.length; i += 1) {
+        const record = fresh[i];
+        if (questionWasEdited(record)) continue;
+        if (sourceFile(record) === "2026-02 Réponses aux questions IP.pdf") {
+          const normalized = text.normalize(record.question);
+          if (normalized.indexOf("disjoncteur") !== -1 && normalized.indexOf("eap") !== -1) {
+            await storage.removeQuestion(record.id);
+            adjusted += 1;
+            continue;
+          }
+        }
+        if (sourceFile(record) !== "CR IP 0924.pdf" || String(record.number) !== "26") continue;
+        if (text.normalize(record.question) !== "sur lsrh" || text.collapse(record.answer)) continue;
+        await storage.removeQuestion(record.id);
+        adjusted += 1;
+      }
+      return { repaired: rejoined.repaired, adjusted: adjusted };
+    }
+
     async function updateLocalFonds(payload) {
       return enqueue(async function () {
         const current = await storage.getMeta("fonds");
@@ -493,9 +610,11 @@
           savedAt: nowIso(),
           questions: cloneQuestions(existing)
         });
+        const repaired = await applyKnownRepairs(storage, (payload && payload.questions) || []);
+        const currentQuestions = await storage.allQuestions();
         const fingerprints = {};
         const numbered = {};
-        existing.forEach(function (record) {
+        currentQuestions.forEach(function (record) {
           if (record.fingerprint) fingerprints[record.fingerprint] = true;
           const key = ficheKey(record);
           if (key) numbered[key] = true;
@@ -505,7 +624,7 @@
         for (let i = 0; i < incoming.length; i += 1) {
           const record = incoming[i];
           if (!record) continue;
-          if (!record.fingerprint) record.fingerprint = text.fingerprint(record);
+          if (assignTdeService(record) || !record.fingerprint) record.fingerprint = text.fingerprint(record);
           if (fingerprints[record.fingerprint]) continue;
           const key = ficheKey(record);
           if (key && numbered[key]) continue;
@@ -521,9 +640,8 @@
           const found = await storage.findDocument(document.sha256);
           if (!found) await storage.putDocument(document, null);
         }
-        const repaired = await rejoinCtFebruary(storage);
         await storage.putMeta({ id: "fonds", revision: FONDS_REVISION, updatedAt: nowIso() });
-        return { updated: true, added: added, repaired: repaired.repaired, backup: backupId };
+        return { updated: true, added: added, repaired: repaired.repaired, adjusted: repaired.adjusted, backup: backupId };
       });
     }
 

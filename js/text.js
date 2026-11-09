@@ -55,7 +55,7 @@
   }
 
   function parseFrenchDate(value) {
-    const text = collapse(value).replace(/\b1er\b/gi, "1");
+    const text = collapse(value).replace(/\b1er\b/gi, "1").replace(/\s*([\/.\-])\s*/g, "$1");
     const numeric = text.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
     if (numeric) return isoDate(numeric[3], numeric[2], numeric[1]);
     const written = text.match(/^(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\s+(\d{2}|\d{4})$/);
@@ -75,7 +75,7 @@
         continue;
       }
       if (calendar) continue;
-      const match = line.match(/Date(?:\s+de\s+la\s+r[ée]union)?\s*:?\s*(?:[A-Za-zÀ-ÿ]+\s+)?(\d{1,2}(?:er)?\s+[A-Za-zÀ-ÿ]+(?:\s+\d{2,4})?|\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/i);
+      const match = line.match(/Date(?:\s+de\s+la\s+r[ée]union)?\s*:?\s*(?:[A-Za-zÀ-ÿ]+\s+)?(\d{1,2}(?:er)?\s+[A-Za-zÀ-ÿ]+(?:\s+\d{2,4})?|\d{1,2}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{2,4})/i);
       if (!match) continue;
       const token = match[1];
       if (!/\d{2,4}$/.test(token)) continue;
@@ -133,8 +133,7 @@
     const source = String(text || "");
     const rules = [
       ["voie", /\bVOIE\b/i],
-      ["mcbt", /\bMCBT\b/i],
-      ["emht", /\bEMHT\b/i],
+      ["tde", /\bunit[ée]\s+TDE\b/i],
       ["eso", /\bESO\b/i],
       ["lem", /\bLEM\b/i],
       ["gigp", /\bGIGP\b/i],
