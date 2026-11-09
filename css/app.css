@@ -490,7 +490,7 @@ footer {
 
 @media (max-width: 900px) {
   .top {
-    padding: max(0.55rem, env(safe-area-inset-top)) max(0.7rem, env(safe-area-inset-right)) 0.55rem max(0.7rem, env(safe-area-inset-left));
+    padding: max(3.4rem, calc(env(safe-area-inset-top, 0px) + 1rem)) max(0.7rem, env(safe-area-inset-right, 0px)) 0.55rem max(0.7rem, env(safe-area-inset-left, 0px));
   }
   .top-bar { flex-wrap: nowrap; align-items: center; gap: 0.6rem; }
   h1 { font-size: 1.05rem; }
@@ -550,7 +550,10 @@ body.is-detail #back-button {
 }
 body.is-detail .app-link { margin-right: 3.2rem; }
 @media (max-width: 900px) {
-  body.is-detail #back-button { right: max(0.55rem, env(safe-area-inset-right)); }
+  body.is-detail #back-button {
+    top: max(3.15rem, calc(env(safe-area-inset-top, 0px) + 0.65rem));
+    right: max(0.55rem, env(safe-area-inset-right, 0px));
+  }
   body.is-detail .app-link { margin-right: 3.5rem; }
 }
 #semantic-status { font-size: 0.85rem; }
