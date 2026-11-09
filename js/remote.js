@@ -54,11 +54,49 @@
     async function request(path, options) {
       const response = await fetch(base + path, options);
       if (response.status === 401 || response.status === 403) {
-        return { ok: false, sessionExpired: true, status: response.status, body: null };
+        return { ok: false, sessionExpired: true, status: response.status, body: null, contentRange: "" };
       }
       let body = null;
       try { body = await response.json(); } catch (error) { body = null; }
-      return { ok: response.ok, sessionExpired: false, status: response.status, body: body };
+      return {
+        ok: response.ok || response.status === 206,
+        sessionExpired: false,
+        status: response.status,
+        body: body,
+        contentRange: response.headers.get("content-range") || ""
+      };
+    }
+
+    function rangeTotal(contentRange, received, pageSize) {
+      if (contentRange === "*/0") return { complete: received === 0, total: 0 };
+      const match = String(contentRange || "").match(/(\d+)-(\d+)\/(\d+|\*)/);
+      if (match && match[3] !== "*") {
+        return { complete: received >= Number(match[3]), total: Number(match[3]), end: Number(match[2]) };
+      }
+      if (match && match[3] === "*") return { complete: false, total: null, end: Number(match[2]) };
+      return { complete: received < pageSize, total: null, end: null };
+    }
+
+    async function pullPages(path, pageSize, mapRow) {
+      const rows = [];
+      let from = 0;
+      for (let page = 0; page < 40; page += 1) {
+        const result = await request(path, {
+          method: "GET",
+          headers: Object.assign({}, authHeaders(), {
+            Range: from + "-" + (from + pageSize - 1),
+            Prefer: "count=exact"
+          })
+        });
+        if (result.sessionExpired) return { ok: false, sessionExpired: true, complete: false, rows: [] };
+        if (!result.ok || !Array.isArray(result.body)) return { ok: false, sessionExpired: false, complete: false, rows: [] };
+        result.body.forEach(function (row) { rows.push(mapRow(row)); });
+        const span = rangeTotal(result.contentRange, rows.length, pageSize);
+        if (span.complete) return { ok: true, sessionExpired: false, complete: true, rows: rows };
+        if (result.body.length === 0 || span.end === null) return { ok: false, sessionExpired: false, complete: false, rows: [] };
+        from = span.end + 1;
+      }
+      return { ok: false, sessionExpired: false, complete: false, rows: [] };
     }
 
     function remember() {
@@ -138,13 +176,32 @@
     }
 
     async function pullQuestions() {
-      const result = await request("/rest/v1/ip_questions?select=*&limit=2000", {
-        method: "GET",
-        headers: authHeaders()
+      return pullPages("/rest/v1/ip_questions?select=*&order=id.asc", 500, fromRow);
+    }
+
+    async function pullQuestionStamps() {
+      return pullPages("/rest/v1/ip_questions?select=id,updated_at&order=id.asc", 1000, function (row) {
+        return { id: row && row.id, updatedAt: row && row.updated_at || null };
       });
-      if (result.sessionExpired) return { ok: false, sessionExpired: true, rows: [] };
-      const rows = Array.isArray(result.body) ? result.body.map(fromRow) : [];
-      return { ok: result.ok, sessionExpired: false, rows: rows };
+    }
+
+    async function pullQuestionsByIds(ids) {
+      const wanted = ids || [];
+      const rows = [];
+      const batchSize = 80;
+      for (let index = 0; index < wanted.length; index += batchSize) {
+        const slice = wanted.slice(index, index + batchSize);
+        const result = await request("/rest/v1/ip_questions?select=*&id=in.(" + slice.join(",") + ")&limit=" + slice.length, {
+          method: "GET",
+          headers: authHeaders()
+        });
+        if (result.sessionExpired) return { ok: false, sessionExpired: true, complete: false, rows: [] };
+        if (!result.ok || !Array.isArray(result.body) || result.body.length !== slice.length) {
+          return { ok: false, sessionExpired: false, complete: false, rows: [] };
+        }
+        result.body.forEach(function (row) { rows.push(fromRow(row)); });
+      }
+      return { ok: true, sessionExpired: false, complete: true, rows: rows };
     }
 
     async function pullDocuments() {
@@ -248,6 +305,8 @@
       signIn: signIn,
       status: status,
       pullQuestions: pullQuestions,
+      pullQuestionStamps: pullQuestionStamps,
+      pullQuestionsByIds: pullQuestionsByIds,
       pullDocuments: pullDocuments,
       saveQuestion: saveQuestion,
       deleteQuestion: deleteQuestion,

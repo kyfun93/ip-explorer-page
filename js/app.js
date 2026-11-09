@@ -1135,6 +1135,35 @@
     if (els.list) els.list.innerHTML = "";
   }
 
+  async function adoptFullPull(pulled) {
+    if (!pulled || pulled.sessionExpired) return pulled || { ok: false, sessionExpired: false, added: 0, updated: 0, removed: 0 };
+    if (!pulled.ok || !pulled.complete) return { ok: false, sessionExpired: false, added: 0, updated: 0, removed: 0 };
+    const merged = await repo.mergeShared(pulled.rows || []);
+    return { ok: true, sessionExpired: false, added: merged.added, updated: merged.updated, removed: merged.removed || 0 };
+  }
+
+  async function syncQuestions() {
+    if (!remote.pullQuestionStamps || !remote.pullQuestionsByIds) return adoptFullPull(await remote.pullQuestions());
+    const stamps = await remote.pullQuestionStamps();
+    if (!stamps || stamps.sessionExpired || !stamps.ok || !stamps.complete) {
+      if (stamps && stamps.sessionExpired) return stamps;
+      return adoptFullPull(await remote.pullQuestions());
+    }
+    const local = await repo.allQuestions();
+    const plan = repo.planSharedSync(local, stamps.rows);
+    if (!plan || plan.uncertain) return adoptFullPull(await remote.pullQuestions());
+    let rows = [];
+    if (plan.fetchIds.length) {
+      const pulled = await remote.pullQuestionsByIds(plan.fetchIds);
+      if (!pulled || pulled.sessionExpired) return pulled || { ok: false, sessionExpired: false, added: 0, updated: 0, removed: 0 };
+      if (!pulled.ok || !pulled.complete) return adoptFullPull(await remote.pullQuestions());
+      rows = pulled.rows || [];
+    }
+    const applied = await repo.applySharedSync(plan.removedIds, rows);
+    if (!applied || applied.uncertain) return adoptFullPull(await remote.pullQuestions());
+    return { ok: true, sessionExpired: false, added: applied.added, updated: applied.updated, removed: applied.removed };
+  }
+
   let watching = false;
   function watchSession() {
     if (watching) return;
@@ -1148,19 +1177,18 @@
           return;
         }
         if (!alive.ok) return;
-        const pulled = await remote.pullQuestions();
-        if (pulled.sessionExpired) {
+        const synced = await syncQuestions();
+        if (synced.sessionExpired) {
           await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
           return;
         }
-        const merged = await repo.mergeShared(pulled.rows || []);
         const documents = await remote.pullDocuments();
         if (documents.sessionExpired) {
           await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
           return;
         }
         if (documents.ok) await repo.rememberSharedDocuments(documents.rows || []);
-        if (merged.added || merged.updated) await refresh();
+        if (synced.added || synced.updated || synced.removed) await refresh();
       } catch (error) {}
     }
     document.addEventListener("visibilitychange", function () {
@@ -1185,6 +1213,11 @@
     const pulled = await remote.pullQuestions();
     if (pulled.sessionExpired) {
       await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
+      return;
+    }
+    if (!pulled.ok || !pulled.complete) {
+      error.hidden = false;
+      error.textContent = "Le fonds n’a pas pu être chargé complètement. Réessayez.";
       return;
     }
     await repo.mergeShared(pulled.rows || []);
@@ -1242,6 +1275,10 @@
       const pulled = await remote.pullQuestions();
       if (pulled.sessionExpired) {
         await lockOut("La session a expiré. Les questions de cet appareil ont été effacées.");
+        return;
+      }
+      if (!pulled.ok || !pulled.complete) {
+        showLogin("Le fonds n’a pas pu être chargé complètement.");
         return;
       }
       await repo.mergeShared(pulled.rows || []);

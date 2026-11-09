@@ -678,39 +678,134 @@
       return record;
     }
 
+    function questionStampMs(value) {
+      if (!value) return null;
+      const ms = Date.parse(value);
+      return Number.isFinite(ms) ? ms : null;
+    }
+
+    function planSharedSync(localRows, stamps) {
+      if (!Array.isArray(stamps)) return { uncertain: true, removedIds: [], fetchIds: [] };
+      const remote = new Map();
+      for (let i = 0; i < stamps.length; i += 1) {
+        const stamp = stamps[i];
+        if (!stamp || !stamp.id || remote.has(stamp.id)) return { uncertain: true, removedIds: [], fetchIds: [] };
+        remote.set(stamp.id, stamp.updatedAt || null);
+      }
+      const localById = new Map();
+      (localRows || []).forEach(function (row) {
+        if (row && row.id) localById.set(row.id, row);
+      });
+      const removedIds = [];
+      localById.forEach(function (row, id) {
+        if (!remote.has(id)) removedIds.push(id);
+      });
+      const fetchIds = [];
+      remote.forEach(function (updatedAt, id) {
+        const local = localById.get(id);
+        if (!local) {
+          fetchIds.push(id);
+          return;
+        }
+        const remoteMs = questionStampMs(updatedAt);
+        const localMs = questionStampMs(local.updatedAt);
+        if (remoteMs === null || localMs === null || remoteMs > localMs) fetchIds.push(id);
+      });
+      return { uncertain: false, removedIds: removedIds, fetchIds: fetchIds };
+    }
+
+    function absorbRemoteRow(all, row, counts) {
+      const byFingerprint = all.find(function (item) { return item.fingerprint === row.fingerprint; });
+      const byId = all.find(function (item) { return item.id === row.id; });
+      if (!byFingerprint && byId) {
+        const index = all.findIndex(function (item) { return item.id === row.id; });
+        if (index >= 0) all[index] = row;
+        counts.updated += 1;
+        return { action: "put", row: row };
+      }
+      const existing = byFingerprint;
+      if (!existing) {
+        all.push(row);
+        counts.added += 1;
+        return { action: "put", row: row };
+      }
+      const remoteMs = questionStampMs(row.updatedAt || row.addedAt);
+      const localMs = questionStampMs(existing.updatedAt || existing.addedAt);
+      if (remoteMs !== null && localMs !== null && remoteMs < localMs) return { action: "skip" };
+      if (existing.id === row.id && remoteMs !== null && localMs !== null && remoteMs === localMs) return { action: "skip" };
+      const removeId = existing.id !== row.id ? existing.id : "";
+      if (removeId) {
+        const index = all.findIndex(function (item) { return item.id === existing.id; });
+        if (index >= 0) all.splice(index, 1);
+      }
+      if (existing.addedAt && (!row.addedAt || existing.addedAt < row.addedAt)) row.addedAt = existing.addedAt;
+      const sameIndex = all.findIndex(function (item) { return item.id === row.id; });
+      if (sameIndex >= 0) all[sameIndex] = row;
+      else all.push(row);
+      counts.updated += 1;
+      return { action: "put", row: row, removeId: removeId };
+    }
+
     async function mergeShared(rows) {
       return enqueue(async function () {
         const all = await storage.allQuestions();
         const incoming = rows || [];
         const seen = {};
-        let added = 0;
-        let updated = 0;
+        const counts = { added: 0, updated: 0 };
+        let removed = 0;
         for (let i = 0; i < incoming.length; i += 1) {
           const row = incoming[i];
           if (!row || !row.fingerprint) continue;
           seen[row.fingerprint] = true;
-          const existing = all.find(function (item) { return item.fingerprint === row.fingerprint; });
-          if (!existing) {
-            await storage.putQuestion(row);
-            all.push(row);
-            added += 1;
-            continue;
-          }
-          const remoteStamp = row.updatedAt || row.addedAt || "";
-          const localStamp = existing.updatedAt || existing.addedAt || "";
-          if (remoteStamp && localStamp && remoteStamp < localStamp) continue;
-          if (existing.id !== row.id) await storage.removeQuestion(existing.id);
-          if (existing.addedAt && (!row.addedAt || existing.addedAt < row.addedAt)) row.addedAt = existing.addedAt;
-          await storage.putQuestion(row);
-          updated += 1;
+          const outcome = absorbRemoteRow(all, row, counts);
+          if (outcome.action !== "put") continue;
+          if (outcome.removeId) await storage.removeQuestion(outcome.removeId);
+          await storage.putQuestion(outcome.row);
         }
         if (incoming.length) {
           for (let i = all.length - 1; i >= 0; i -= 1) {
             if (seen[all[i].fingerprint]) continue;
             await storage.removeQuestion(all[i].id);
+            all.splice(i, 1);
+            removed += 1;
           }
         }
-        return { added: added, updated: updated };
+        return { added: counts.added, updated: counts.updated, removed: removed };
+      });
+    }
+
+    async function applySharedSync(removedIds, rows) {
+      return enqueue(async function () {
+        const incoming = rows || [];
+        const seenIds = {};
+        for (let i = 0; i < incoming.length; i += 1) {
+          const row = incoming[i];
+          if (!row || !row.id || !row.fingerprint || seenIds[row.id]) {
+            return { uncertain: true, added: 0, updated: 0, removed: 0 };
+          }
+          seenIds[row.id] = true;
+        }
+        const all = await storage.allQuestions();
+        const counts = { added: 0, updated: 0 };
+        const writes = [];
+        for (let i = 0; i < incoming.length; i += 1) {
+          const outcome = absorbRemoteRow(all, incoming[i], counts);
+          if (outcome.action === "put") writes.push(outcome);
+        }
+        for (let i = 0; i < writes.length; i += 1) {
+          if (writes[i].removeId) await storage.removeQuestion(writes[i].removeId);
+          await storage.putQuestion(writes[i].row);
+        }
+        let removed = 0;
+        const gone = removedIds || [];
+        for (let i = 0; i < gone.length; i += 1) {
+          if (seenIds[gone[i]]) continue;
+          const present = all.find(function (item) { return item.id === gone[i]; });
+          if (!present) continue;
+          await storage.removeQuestion(gone[i]);
+          removed += 1;
+        }
+        return { uncertain: false, added: counts.added, updated: counts.updated, removed: removed };
       });
     }
 
@@ -772,6 +867,8 @@
       updateLocalFonds: updateLocalFonds,
       getBackup: function (id) { return storage.getBackup(id); },
       mergeShared: mergeShared,
+      planSharedSync: planSharedSync,
+      applySharedSync: applySharedSync,
       rememberSharedDocuments: rememberSharedDocuments,
       getDocument: function (id) { return storage.getDocument(id); },
       clearConfidential: function () { return storage.clearConfidential(); },
